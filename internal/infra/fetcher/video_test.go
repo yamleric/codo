@@ -66,6 +66,9 @@ func TestBaseYTDLPArgsUseBrowserHeaders(t *testing.T) {
 		"--user-agent\n" + defaultYTDLPUserAgent,
 		"--referer\n" + defaultBilibiliReferer,
 		"--add-header\nAccept-Language:" + defaultAcceptLanguage,
+		"--add-header\nAccept:text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8",
+		"--add-header\nSec-CH-UA-Platform:\"Windows\"",
+		"--add-header\nUpgrade-Insecure-Requests:1",
 	} {
 		if !strings.Contains(got, want) {
 			t.Fatalf("missing %q in args: %q", want, got)

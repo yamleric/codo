@@ -37,6 +37,7 @@ services:
       WEB_DIR: ./web/dist
     volumes:
       - ./secrets:/run/codo-secrets:ro
+      - ./browser-profile:/run/codo-browser-profile:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -59,6 +60,7 @@ services:
       YTDLP_REFERER: ${YTDLP_REFERER:-}
     volumes:
       - ./secrets:/run/codo-secrets:ro
+      - ./browser-profile:/run/codo-browser-profile:ro
     depends_on:
       postgres:
         condition: service_healthy
