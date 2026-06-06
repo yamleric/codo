@@ -38,6 +38,7 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
   <tr><td>通知</td><td><a href="https://github.com/go-telegram-bot-api/telegram-bot-api">go-telegram-bot-api/telegram-bot-api</a></td><td>Telegram 消息推送</td></tr>
   <tr><td>订阅源</td><td><a href="https://github.com/mmcdole/gofeed">mmcdole/gofeed</a></td><td>RSS / Atom / JSON Feed 统一解析</td></tr>
   <tr><td>网页抓取</td><td><a href="https://codeberg.org/readeck/go-readability">readeck/go-readability</a></td><td>网页正文提取</td></tr>
+  <tr><td>浏览器抓取</td><td><a href="https://github.com/playwright-community/playwright-go">playwright-community/playwright-go</a></td><td>知乎等 JS 渲染页面的浏览器自动化抓取</td></tr>
   <tr><td>安全清洗</td><td><a href="https://github.com/microcosm-cc/bluemonday">microcosm-cc/bluemonday</a></td><td>HTML 安全清洗，入库 / 展示前 sanitize</td></tr>
   <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取</td></tr>
   <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>B站 / 抖音公开视频元数据、字幕和音频下载；cookies 文件和浏览器 cookies 来源配置</td></tr>

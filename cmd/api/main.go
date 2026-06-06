@@ -394,6 +394,7 @@ type settingsRuntime struct {
 	YTDLPConfigured        bool `json:"yt_dlp_configured"`
 	YTDLPCookiesSet        bool `json:"yt_dlp_cookies_set"`
 	YTDLPBrowserCookiesSet bool `json:"yt_dlp_browser_cookies_set"`
+	PlaywrightConfigured   bool `json:"playwright_configured"`
 	FFMPEGConfigured       bool `json:"ffmpeg_configured"`
 }
 
@@ -471,8 +472,31 @@ func runtimeSettings() settingsRuntime {
 		YTDLPConfigured:        ytDLPErr == nil,
 		YTDLPCookiesSet:        os.Getenv("YTDLP_COOKIES_FILE") != "" || os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
 		YTDLPBrowserCookiesSet: os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
+		PlaywrightConfigured:   playwrightAvailable(),
 		FFMPEGConfigured:       ffmpegErr == nil,
 	}
+}
+
+func playwrightAvailable() bool {
+	driverPath := os.Getenv("PLAYWRIGHT_DRIVER_PATH")
+	return executableAvailable(getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "chromium-browser")) &&
+		executableAvailable(getenv("PLAYWRIGHT_NODEJS_PATH", "node")) &&
+		driverPath != "" &&
+		fileAvailable(driverPath+"/package/cli.js")
+}
+
+func executableAvailable(name string) bool {
+	if strings.Contains(name, "/") {
+		info, err := os.Stat(name)
+		return err == nil && !info.IsDir()
+	}
+	_, err := exec.LookPath(name)
+	return err == nil
+}
+
+func fileAvailable(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && !info.IsDir()
 }
 
 func main() {

@@ -280,6 +280,7 @@ const runtimeItems = computed(() => {
     { label: 'LLM', detail: '过滤与摘要', configured: !!runtime?.llm_configured, icon: KeyRound },
     { label: 'ASR', detail: '视频转写', configured: !!runtime?.asr_configured, icon: Mic },
     { label: 'Telegram', detail: '消息推送', configured: !!runtime?.telegram_configured, icon: MessageCircle },
+    { label: '浏览器抓取', detail: '知乎渲染', configured: !!runtime?.playwright_configured, icon: Terminal },
     { label: 'yt-dlp', detail: '视频获取', configured: !!runtime?.yt_dlp_configured, icon: Terminal },
     { label: '视频 Cookies', detail: '抖音授权', configured: !!runtime?.yt_dlp_cookies_set, icon: KeyRound },
     { label: 'ffmpeg', detail: '音频处理', configured: !!runtime?.ffmpeg_configured, icon: Terminal },
