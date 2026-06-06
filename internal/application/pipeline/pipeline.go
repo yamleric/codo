@@ -23,6 +23,10 @@ type Classifier interface {
 	Classify(ctx context.Context, content string) (string, error)
 }
 
+type Categorizer interface {
+	Categorize(ctx context.Context, userID, content string) (task.Classification, error)
+}
+
 type Extractor interface {
 	Extract(ctx context.Context, messages string) (string, error)
 }
@@ -96,15 +100,16 @@ func (r *Router) Run(ctx context.Context, t *task.Task) error {
 // ── Shared stage helpers ──────────────────────────────────────────────────────
 
 type stages struct {
-	store    Store
-	notifier Notifier
-	onStatus OnStatusFunc
-	settings UserSettingsProvider
+	store       Store
+	notifier    Notifier
+	onStatus    OnStatusFunc
+	settings    UserSettingsProvider
+	categorizer Categorizer
 }
 
-func newStages(st Store, n Notifier, on OnStatusFunc) stages {
+func newStages(st Store, n Notifier, on OnStatusFunc, c Categorizer) stages {
 	settings, _ := st.(UserSettingsProvider)
-	return stages{store: st, notifier: n, onStatus: on, settings: settings}
+	return stages{store: st, notifier: n, onStatus: on, settings: settings, categorizer: c}
 }
 
 // setStatus persists state and notifies the board.
@@ -150,6 +155,32 @@ func (s *stages) dedup(ctx context.Context, t *task.Task) (bool, error) {
 	}
 	s.addStep(ctx, t, "去重检查", task.StepOK, "", start)
 	return false, nil
+}
+
+func (s *stages) categorize(ctx context.Context, t *task.Task, content string) {
+	if s.categorizer == nil {
+		return
+	}
+	start := time.Now()
+	classification, err := s.categorizer.Categorize(ctx, t.UserID, content)
+	if err != nil {
+		s.addStep(ctx, t, "内容分类", task.StepError, err.Error(), start)
+		return
+	}
+	classification = task.NormalizeClassification(classification)
+	t.SetClassification(classification.Category, classification.Tags)
+	if err := s.store.SaveTaskState(ctx, t); err != nil {
+		s.addStep(ctx, t, "内容分类", task.StepError, err.Error(), start)
+		return
+	}
+	detail := classification.Category
+	if len(classification.Tags) > 0 {
+		detail += ": " + strings.Join(classification.Tags, " / ")
+	}
+	s.addStep(ctx, t, "内容分类", task.StepOK, detail, start)
+	if s.onStatus != nil {
+		s.onStatus(t.Snapshot())
+	}
 }
 
 func (s *stages) saveAndNotify(ctx context.Context, t *task.Task, summary string) error {
@@ -224,7 +255,8 @@ type WebPagePipeline struct {
 }
 
 func NewWebPage(f Fetcher, fl Filterer, su Summarizer, st Store, n Notifier, on OnStatusFunc) *WebPagePipeline {
-	return &WebPagePipeline{stages: newStages(st, n, on), fetcher: f, filterer: fl, summarizer: su}
+	categorizer, _ := su.(Categorizer)
+	return &WebPagePipeline{stages: newStages(st, n, on, categorizer), fetcher: f, filterer: fl, summarizer: su}
 }
 
 func (p *WebPagePipeline) ContentType() task.ContentType { return task.ContentWebPage }
@@ -272,6 +304,7 @@ func (p *WebPagePipeline) Run(ctx context.Context, t *task.Task) error {
 	}
 	t.SetSummary(summary)
 	p.addStep(ctx, t, "生成摘要", task.StepOK, "", start)
+	p.categorize(ctx, t, content+"\n\n摘要：\n"+summary)
 
 	return p.saveAndNotify(ctx, t, summary)
 }
@@ -286,7 +319,8 @@ type VideoPipeline struct {
 }
 
 func NewVideo(f Fetcher, fl Filterer, su Summarizer, st Store, n Notifier, on OnStatusFunc) *VideoPipeline {
-	return &VideoPipeline{stages: newStages(st, n, on), fetcher: f, filterer: fl, summarizer: su}
+	categorizer, _ := su.(Categorizer)
+	return &VideoPipeline{stages: newStages(st, n, on, categorizer), fetcher: f, filterer: fl, summarizer: su}
 }
 
 func (p *VideoPipeline) ContentType() task.ContentType { return task.ContentVideo }
@@ -334,6 +368,7 @@ func (p *VideoPipeline) Run(ctx context.Context, t *task.Task) error {
 	}
 	t.SetSummary(summary)
 	p.addStep(ctx, t, "生成摘要", task.StepOK, "", start)
+	p.categorize(ctx, t, transcript+"\n\n摘要：\n"+summary)
 
 	return p.saveAndNotify(ctx, t, summary)
 }
@@ -355,7 +390,8 @@ type EmailPipeline struct {
 }
 
 func NewEmail(cl Classifier, su Summarizer, st Store, n Notifier, on OnStatusFunc) *EmailPipeline {
-	return &EmailPipeline{stages: newStages(st, n, on), classifier: cl, summarizer: su}
+	categorizer, _ := su.(Categorizer)
+	return &EmailPipeline{stages: newStages(st, n, on, categorizer), classifier: cl, summarizer: su}
 }
 
 func (p *EmailPipeline) ContentType() task.ContentType { return task.ContentEmail }
@@ -384,6 +420,7 @@ func (p *EmailPipeline) Run(ctx context.Context, t *task.Task) error {
 		t.SetFilterDecision(task.FilterSilent)
 		// Do not store raw content as summary — it may be long or sensitive.
 		// Summary stays empty; the full content is stored via SaveKnowledgeItem.
+		p.categorize(ctx, t, t.RawContent())
 		return p.saveAndNotify(ctx, t, "")
 	}
 
@@ -398,6 +435,7 @@ func (p *EmailPipeline) Run(ctx context.Context, t *task.Task) error {
 	}
 	t.SetSummary(summary)
 	p.addStep(ctx, t, "生成摘要", task.StepOK, "", start)
+	p.categorize(ctx, t, t.RawContent()+"\n\n摘要：\n"+summary)
 
 	return p.saveAndNotify(ctx, t, summary)
 }
@@ -410,7 +448,8 @@ type MessagePipeline struct {
 }
 
 func NewMessage(ex Extractor, st Store, n Notifier, on OnStatusFunc) *MessagePipeline {
-	return &MessagePipeline{stages: newStages(st, n, on), extractor: ex}
+	categorizer, _ := ex.(Categorizer)
+	return &MessagePipeline{stages: newStages(st, n, on, categorizer), extractor: ex}
 }
 
 func (p *MessagePipeline) ContentType() task.ContentType { return task.ContentMessage }
@@ -428,6 +467,7 @@ func (p *MessagePipeline) Run(ctx context.Context, t *task.Task) error {
 	t.SetSummary(digest)
 	t.SetFilterDecision(task.FilterPass)
 	p.addStep(ctx, t, "提炼关键信息", task.StepOK, "", start)
+	p.categorize(ctx, t, t.RawContent()+"\n\n摘要：\n"+digest)
 
 	return p.saveAndNotify(ctx, t, digest)
 }

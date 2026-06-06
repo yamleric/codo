@@ -1,6 +1,7 @@
 package task
 
 import (
+	"strings"
 	"sync"
 	"time"
 )
@@ -58,6 +59,67 @@ const (
 	StepSkipped StepStatus = "skipped"
 )
 
+type Classification struct {
+	Category string   `json:"category"`
+	Tags     []string `json:"tags"`
+	Reason   string   `json:"reason,omitempty"`
+}
+
+var allowedCategories = map[string]struct{}{
+	"AI": {},
+	"技术": {},
+	"产品": {},
+	"商业": {},
+	"社会": {},
+	"学习": {},
+	"生活": {},
+	"娱乐": {},
+	"工具": {},
+	"其他": {},
+}
+
+func NormalizeClassification(c Classification) Classification {
+	c.Category = strings.TrimSpace(c.Category)
+	if _, ok := allowedCategories[c.Category]; !ok {
+		c.Category = "其他"
+	}
+	c.Tags = normalizeTags(c.Tags)
+	c.Reason = truncateRunes(strings.TrimSpace(c.Reason), 80)
+	return c
+}
+
+func normalizeTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		tag = truncateRunes(strings.TrimSpace(tag), 16)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, tag)
+		if len(out) >= 5 {
+			break
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func truncateRunes(value string, maxRunes int) string {
+	runes := []rune(value)
+	if len(runes) <= maxRunes {
+		return value
+	}
+	return string(runes[:maxRunes])
+}
+
 // Step records one stage execution.
 type Step struct {
 	Label    string
@@ -81,6 +143,8 @@ type Task struct {
 	rawContent     string
 	status         Status
 	filterDecision FilterDecision
+	category       string
+	tags           []string
 	summary        string
 	errMsg         string
 	steps          []Step
@@ -148,6 +212,29 @@ func (t *Task) SetFilterDecision(d FilterDecision) {
 	t.mu.Unlock()
 }
 
+func (t *Task) Category() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.category
+}
+
+func (t *Task) Tags() []string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	out := make([]string, len(t.tags))
+	copy(out, t.tags)
+	return out
+}
+
+func (t *Task) SetClassification(category string, tags []string) {
+	classification := NormalizeClassification(Classification{Category: category, Tags: tags})
+	t.mu.Lock()
+	t.category = classification.Category
+	t.tags = append([]string(nil), classification.Tags...)
+	t.updatedAt = time.Now()
+	t.mu.Unlock()
+}
+
 func (t *Task) Summary() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
@@ -197,6 +284,8 @@ type Snapshot struct {
 	UserID         string         `json:"user_id"`
 	Status         Status         `json:"status"`
 	FilterDecision FilterDecision `json:"filter_decision"`
+	Category       string         `json:"category"`
+	Tags           []string       `json:"tags"`
 	Summary        string         `json:"summary"`
 	Error          string         `json:"error"`
 	Steps          []SnapshotStep `json:"steps"`
@@ -223,6 +312,8 @@ func (t *Task) Snapshot() Snapshot {
 			DurationMs: step.Duration.Milliseconds(),
 		}
 	}
+	tags := make([]string, len(t.tags))
+	copy(tags, t.tags)
 	return Snapshot{
 		ID:             t.ID,
 		Source:         t.Source,
@@ -231,6 +322,8 @@ func (t *Task) Snapshot() Snapshot {
 		UserID:         t.UserID,
 		Status:         t.status,
 		FilterDecision: t.filterDecision,
+		Category:       t.category,
+		Tags:           tags,
 		Summary:        t.summary,
 		Error:          t.errMsg,
 		Steps:          steps,

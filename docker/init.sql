@@ -18,6 +18,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     raw_content     TEXT,
     status          TEXT NOT NULL DEFAULT 'pending',
     filter_decision TEXT NOT NULL DEFAULT '',
+    category        TEXT NOT NULL DEFAULT '',
+    tags            TEXT[] DEFAULT '{}',
     summary         TEXT NOT NULL DEFAULT '',
     error           TEXT NOT NULL DEFAULT '',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -44,6 +46,7 @@ CREATE TABLE IF NOT EXISTS articles (
     source      TEXT NOT NULL,
     content     TEXT NOT NULL DEFAULT '',
     summary     TEXT NOT NULL DEFAULT '',
+    category    TEXT NOT NULL DEFAULT '',
     embedding   vector(1536),
     tags        TEXT[] DEFAULT '{}',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -51,6 +54,8 @@ CREATE TABLE IF NOT EXISTS articles (
 
 CREATE UNIQUE INDEX IF NOT EXISTS articles_url_hash_user ON articles(user_id, url_hash) WHERE url_hash IS NOT NULL;
 CREATE INDEX IF NOT EXISTS articles_embedding_idx ON articles USING hnsw (embedding vector_cosine_ops);
+CREATE INDEX IF NOT EXISTS tasks_category_user_idx ON tasks(user_id, category);
+CREATE INDEX IF NOT EXISTS articles_category_user_idx ON articles(user_id, category);
 
 CREATE TABLE IF NOT EXISTS subscriptions (
     id              TEXT PRIMARY KEY,
