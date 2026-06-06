@@ -68,17 +68,17 @@ type Step struct {
 }
 
 // Task is the aggregate root. Always use *Task — copying invalidates the mutex.
-// Immutable fields (ID, Source, ContentType, URL, RawContent, UserID) are safe
-// to read without the lock after construction.
+// Immutable fields (ID, Source, ContentType, URL, UserID) are safe to read
+// without the lock after construction.
 type Task struct {
 	ID          string
 	Source      SourceType
 	ContentType ContentType
 	URL         string
-	RawContent  string
 	UserID      string
 
 	mu             sync.RWMutex
+	rawContent     string
 	status         Status
 	filterDecision FilterDecision
 	summary        string
@@ -95,13 +95,26 @@ func New(id, userID string, src SourceType, ct ContentType, url, raw string) *Ta
 		Source:         src,
 		ContentType:    ct,
 		URL:            url,
-		RawContent:     raw,
 		UserID:         userID,
+		rawContent:     raw,
 		status:         StatusPending,
 		filterDecision: FilterUnset, // explicit default — pipeline must set this
 		createdAt:      now,
 		updatedAt:      now,
 	}
+}
+
+func (t *Task) RawContent() string {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	return t.rawContent
+}
+
+func (t *Task) SetRawContent(content string) {
+	t.mu.Lock()
+	t.rawContent = content
+	t.updatedAt = time.Now()
+	t.mu.Unlock()
 }
 
 func (t *Task) SetStatus(s Status) {

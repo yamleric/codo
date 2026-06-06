@@ -23,6 +23,8 @@ var httpClient = &http.Client{Timeout: 30 * time.Second}
 var sanitizer = bluemonday.StrictPolicy()
 var whitespace = regexp.MustCompile(`\s+`)
 
+const wechatParserReference = "https://github.com/huanjuedadehen/wechat-article-parser"
+
 // HTTPFetcher implements pipeline.Fetcher using plain HTTP + readability.
 type HTTPFetcher struct{}
 
@@ -30,8 +32,8 @@ func NewHTTP() *HTTPFetcher { return &HTTPFetcher{} }
 
 func (f *HTTPFetcher) Fetch(ctx context.Context, t *task.Task) (string, error) {
 	if t.URL == "" {
-		if t.RawContent != "" {
-			return t.RawContent, nil
+		if t.RawContent() != "" {
+			return t.RawContent(), nil
 		}
 		return "", fmt.Errorf("fetcher: no URL or raw content")
 	}
@@ -86,9 +88,16 @@ func extractWechatArticle(body []byte) (string, error) {
 		return "", err
 	}
 
-	content := doc.Find("#js_content").First()
+	// Verification detection and alternate article containers are informed by
+	// wechat-article-parser (MIT); this implementation remains native Go.
+	// See CREDITS.md and wechatParserReference.
+	if doc.Find(`script[src*="secitptpage/template/verify.js"]`).Length() > 0 {
+		return "", fmt.Errorf("verification required")
+	}
+
+	content := doc.Find("#js_content, .rich_media_content, .original_page").First()
 	if content.Length() == 0 {
-		return "", fmt.Errorf("missing #js_content")
+		return "", fmt.Errorf("missing article content")
 	}
 	content.Find("script, style, noscript").Remove()
 

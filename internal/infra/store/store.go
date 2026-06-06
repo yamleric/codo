@@ -26,13 +26,14 @@ func (s *Store) SaveTaskState(ctx context.Context, t *task.Task) error {
 		                   status, filter_decision, summary, error, created_at, updated_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
 		ON CONFLICT (id) DO UPDATE SET
+			raw_content      = EXCLUDED.raw_content,
 			status          = EXCLUDED.status,
 			filter_decision = EXCLUDED.filter_decision,
 			summary         = EXCLUDED.summary,
 			error           = EXCLUDED.error,
 			updated_at      = EXCLUDED.updated_at`,
 		t.ID, t.UserID, string(t.Source), string(t.ContentType),
-		t.URL, t.RawContent,
+		t.URL, t.RawContent(),
 		string(t.Status()), string(t.FilterDecision()),
 		t.Summary(), t.Error(),
 		t.CreatedAt(), t.UpdatedAt(),
@@ -59,7 +60,7 @@ func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 			summary    = EXCLUDED.summary,
 			content    = EXCLUDED.content`,
 		t.ID, t.UserID, t.ID, t.URL, hash,
-		string(t.Source), t.RawContent, t.Summary(),
+		string(t.Source), t.RawContent(), t.Summary(),
 	)
 	return err
 }
@@ -85,16 +86,16 @@ func contentHash(s string) string {
 
 // TaskRow is a flat representation for API responses.
 type TaskRow struct {
-	ID             string     `json:"id"`
-	Source         string     `json:"source"`
-	ContentType    string     `json:"content_type"`
-	URL            string     `json:"url"`
-	Status         string     `json:"status"`
-	FilterDecision string     `json:"filter_decision"`
-	Summary        string     `json:"summary"`
-	Error          string     `json:"error"`
-	CreatedAt      string     `json:"created_at"`
-	Steps          []StepRow  `json:"steps"`
+	ID             string    `json:"id"`
+	Source         string    `json:"source"`
+	ContentType    string    `json:"content_type"`
+	URL            string    `json:"url"`
+	Status         string    `json:"status"`
+	FilterDecision string    `json:"filter_decision"`
+	Summary        string    `json:"summary"`
+	Error          string    `json:"error"`
+	CreatedAt      string    `json:"created_at"`
+	Steps          []StepRow `json:"steps"`
 }
 
 type StepRow struct {
@@ -171,12 +172,12 @@ func (s *Store) listSteps(ctx context.Context, taskID string) ([]StepRow, error)
 // ── Subscription ─────────────────────────────────────────────────────────────
 
 type SubscriptionRow struct {
-	ID             string      `json:"id"`
-	UserID         string      `json:"user_id"`
-	SourceType     string      `json:"source_type"`
-	FeedURL        string      `json:"feed_url"`
-	LastFetchedAt  interface{} `json:"last_fetched_at"`
-	Enabled        bool        `json:"enabled"`
+	ID            string      `json:"id"`
+	UserID        string      `json:"user_id"`
+	SourceType    string      `json:"source_type"`
+	FeedURL       string      `json:"feed_url"`
+	LastFetchedAt interface{} `json:"last_fetched_at"`
+	Enabled       bool        `json:"enabled"`
 }
 
 func (s *Store) ListRSSSubscriptions(ctx context.Context) ([]SubscriptionRow, error) {
