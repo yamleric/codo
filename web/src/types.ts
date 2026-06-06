@@ -34,6 +34,28 @@ export interface Subscription {
   created_at: string
 }
 
+export interface Bookmark {
+  id: string
+  user_id: string
+  url: string
+  title: string
+  folder: string
+  note: string
+  status: 'pending' | 'syncing' | 'synced' | 'failed' | string
+  last_task_id: string
+  last_synced_at: string | null
+  last_error: string
+  created_at: string
+  updated_at: string
+}
+
+export interface BookmarkImportResult {
+  imported: number
+  updated: number
+  skipped: number
+  bookmarks: Bookmark[]
+}
+
 export type NotifyChannel = 'telegram' | 'none'
 export type NotifyPolicy = 'pass_only' | 'save_only'
 export type SummaryStyle = 'concise' | 'structured' | 'actionable'

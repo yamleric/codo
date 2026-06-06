@@ -19,23 +19,40 @@ func NormalizeURL(input string) (string, error) {
 		return "", fmt.Errorf("empty url")
 	}
 
-	candidate := pastedURL.FindString(raw)
-	if candidate == "" {
+	urls := ExtractURLs(raw)
+	if len(urls) == 0 {
 		return "", fmt.Errorf("missing http(s) url")
 	}
+	return urls[0], nil
+}
 
-	candidate = trimURLPunctuation(candidate)
-	parsed, err := url.Parse(candidate)
-	if err != nil {
-		return "", fmt.Errorf("parse url: %w", err)
+func ExtractURLs(input string) []string {
+	matches := pastedURL.FindAllString(input, -1)
+	out := make([]string, 0, len(matches))
+	seen := make(map[string]struct{}, len(matches))
+	for _, candidate := range matches {
+		candidate = trimURLPunctuation(candidate)
+		parsed, err := url.Parse(candidate)
+		if err != nil {
+			continue
+		}
+		if parsed.Scheme != "http" && parsed.Scheme != "https" {
+			continue
+		}
+		if parsed.Hostname() == "" {
+			continue
+		}
+		normalized := parsed.String()
+		if _, ok := seen[normalized]; ok {
+			continue
+		}
+		seen[normalized] = struct{}{}
+		out = append(out, normalized)
 	}
-	if parsed.Scheme != "http" && parsed.Scheme != "https" {
-		return "", fmt.Errorf("unsupported url scheme")
+	if out == nil {
+		return []string{}
 	}
-	if parsed.Hostname() == "" {
-		return "", fmt.Errorf("missing url host")
-	}
-	return parsed.String(), nil
+	return out
 }
 
 func DetectContentType(rawURL string) task.ContentType {

@@ -36,6 +36,26 @@ func TestNormalizeURLExtractsWhenShareTextStartsWithURL(t *testing.T) {
 	}
 }
 
+func TestExtractURLsReturnsUniqueNormalizedURLs(t *testing.T) {
+	got := ExtractURLs(`
+		技术文章 https://example.com/a?x=1，
+		重复 https://example.com/a?x=1
+		视频：https://www.bilibili.com/video/BV1xx411c7mD/。
+	`)
+	want := []string{
+		"https://example.com/a?x=1",
+		"https://www.bilibili.com/video/BV1xx411c7mD/",
+	}
+	if len(got) != len(want) {
+		t.Fatalf("ExtractURLs() length = %d, want %d: %#v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("ExtractURLs()[%d] = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
 func TestDetectContentType(t *testing.T) {
 	cases := map[string]task.ContentType{
 		"https://www.bilibili.com/video/BV1xx411c7mD/": task.ContentVideo,
