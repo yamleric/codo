@@ -12,6 +12,7 @@ credentials.json
 secrets.yaml
 secrets.yml
 secrets/
+browser-profile/
 
 worker
 api

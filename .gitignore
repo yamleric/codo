@@ -8,6 +8,7 @@ credentials.json
 secrets.yaml
 secrets.yml
 secrets/
+browser-profile/
 
 # Go binaries
 /bin/
