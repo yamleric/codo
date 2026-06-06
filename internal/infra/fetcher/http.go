@@ -125,7 +125,7 @@ func (f *HTTPFetcher) fetchZhihuWithPlaywright(ctx context.Context, rawURL strin
 		if got.err != nil {
 			return "", got.err
 		}
-		return validateContent(got.text)
+		return validateZhihuRenderedContent(got.text)
 	}
 }
 
@@ -246,6 +246,35 @@ func composeZhihuText(titleBlocks, contentBlocks []string, fallback string) stri
 		return fallback
 	}
 	return text
+}
+
+func validateZhihuRenderedContent(text string) (string, error) {
+	if isZhihuAccessRestrictedText(text) {
+		return "", fmt.Errorf("fetcher: zhihu access restricted or verification required")
+	}
+	return validateContent(text)
+}
+
+func isZhihuAccessRestrictedText(text string) bool {
+	text = cleanText(text)
+	restrictedMarkers := []string{
+		"当前请求存在异常",
+		"请求存在异常",
+		"访问异常",
+		"错误码 40362",
+		"错误码：40362",
+		"请进行安全验证",
+		"安全验证",
+		"登录知乎",
+		"扫码登录",
+		"密码登录",
+	}
+	for _, marker := range restrictedMarkers {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func extractWechatArticle(body []byte) (string, error) {

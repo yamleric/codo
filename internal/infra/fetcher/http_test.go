@@ -108,3 +108,10 @@ func TestComposeZhihuTextFallsBackToLongerBody(t *testing.T) {
 		t.Fatalf("composeZhihuText() should use longer body fallback")
 	}
 }
+
+func TestValidateZhihuRenderedContentRejectsRestrictionPage(t *testing.T) {
+	text := "当前请求存在异常，暂时无法访问。错误码 40362。如有疑问请联系知乎小管家。"
+	if _, err := validateZhihuRenderedContent(text); err == nil {
+		t.Fatal("expected zhihu restriction page to be rejected")
+	}
+}
