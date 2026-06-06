@@ -46,6 +46,7 @@ export interface SettingsRuntime {
   yt_dlp_configured: boolean
   yt_dlp_cookies_set: boolean
   yt_dlp_browser_cookies_set: boolean
+  playwright_configured: boolean
   ffmpeg_configured: boolean
 }
 

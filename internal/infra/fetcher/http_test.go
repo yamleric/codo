@@ -57,3 +57,54 @@ func TestExtractWechatArticleSupportsAlternateContentContainer(t *testing.T) {
 		t.Fatalf("unexpected extracted text: %s", text)
 	}
 }
+
+func TestIsZhihuHost(t *testing.T) {
+	cases := map[string]bool{
+		"zhihu.com":          true,
+		"www.zhihu.com":      true,
+		"zhuanlan.zhihu.com": true,
+		"notzhihu.com":       false,
+		"zhihu.com.example":  false,
+		"www.bilibili.com":   false,
+	}
+
+	for host, want := range cases {
+		if got := isZhihuHost(host); got != want {
+			t.Fatalf("isZhihuHost(%q) = %t, want %t", host, got, want)
+		}
+	}
+}
+
+func TestNormalizeTextBlocks(t *testing.T) {
+	got := normalizeTextBlocks([]string{
+		"  标题  ",
+		"标题",
+		"\n正文   第一段\n",
+		"",
+		"正文 第二段",
+	})
+	want := "标题\n\n正文 第一段\n\n正文 第二段"
+	if got != want {
+		t.Fatalf("normalizeTextBlocks() = %q, want %q", got, want)
+	}
+}
+
+func TestComposeZhihuTextCombinesTitleAndContent(t *testing.T) {
+	got := composeZhihuText(
+		[]string{"知乎问题标题"},
+		[]string{"回答正文第一段", "回答正文第二段", "知乎问题标题"},
+		"",
+	)
+	want := "知乎问题标题\n\n回答正文第一段\n\n回答正文第二段"
+	if got != want {
+		t.Fatalf("composeZhihuText() = %q, want %q", got, want)
+	}
+}
+
+func TestComposeZhihuTextFallsBackToLongerBody(t *testing.T) {
+	body := strings.Repeat("正文", 80)
+	got := composeZhihuText([]string{"短标题"}, nil, body)
+	if got != body {
+		t.Fatalf("composeZhihuText() should use longer body fallback")
+	}
+}

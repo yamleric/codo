@@ -32,6 +32,9 @@ services:
       YTDLP_COOKIES_FROM_BROWSER: ${YTDLP_COOKIES_FROM_BROWSER:-}
       YTDLP_USER_AGENT: ${YTDLP_USER_AGENT:-}
       YTDLP_REFERER: ${YTDLP_REFERER:-}
+      PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
+      PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/usr/bin/chromium-browser}
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
       DEFAULT_USER_ID: ${DEFAULT_USER_ID:-demo-user}
       WEB_DIR: ./web/dist
@@ -58,6 +61,9 @@ services:
       YTDLP_COOKIES_FROM_BROWSER: ${YTDLP_COOKIES_FROM_BROWSER:-}
       YTDLP_USER_AGENT: ${YTDLP_USER_AGENT:-}
       YTDLP_REFERER: ${YTDLP_REFERER:-}
+      PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
+      PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/usr/bin/chromium-browser}
     volumes:
       - ./secrets:/run/codo-secrets:ro
       - ./browser-profile:/run/codo-browser-profile:ro
