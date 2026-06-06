@@ -110,7 +110,7 @@
   <tr><td>本地开发</td><td>docker-compose</td><td>一条命令启动全部服务</td></tr>
   <tr><td>云端部署</td><td>Railway</td><td>推代码自动部署，按用量计费</td></tr>
   <tr><td>CI/CD</td><td>GitHub Actions</td><td>自动构建镜像、测试、滚动部署</td></tr>
-  <tr><td>前端</td><td>PWA</td><td>网页即 App，支持安装到手机桌面，无需上架应用商店</td></tr>
+  <tr><td>前端</td><td>Vue Web 看板</td><td>通过浏览器访问任务状态、历史记录和订阅配置</td></tr>
   <tr><td>通知渠道</td><td>Telegram Bot / 微信公众号</td><td>任务完成主动推送，手机必达</td></tr>
 </table>
 
@@ -119,6 +119,6 @@
 ## 设计原则
 
 - 人驱动，系统自动执行，结果永久沉淀
-- 一次部署，手机 / 电脑 / 微信全端可用
+- 一次部署，手机 / 电脑浏览器均可访问
 - 数据自己掌控，私有部署
 - 先解决自己的问题，再开源

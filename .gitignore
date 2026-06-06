@@ -1,0 +1,20 @@
+.env
+*.env
+.env.*
+!.env.example
+*.key
+*.pem
+credentials.json
+secrets.yaml
+secrets.yml
+
+# Go binaries
+/bin/
+*.exe
+/worker
+
+# Build output
+dist/
+
+# macOS
+.DS_Store
