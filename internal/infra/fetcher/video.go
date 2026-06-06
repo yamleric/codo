@@ -9,6 +9,7 @@ import (
 	"io"
 	"mime/multipart"
 	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -29,7 +30,9 @@ const (
 	defaultMaxAudioBytes     = 24 * 1024 * 1024
 	defaultMaxDurationSec    = 2 * 60 * 60
 	defaultYTDLPUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
-	defaultYTDLPReferer      = "https://www.bilibili.com/"
+	defaultYTDLPReferer      = ""
+	defaultBilibiliReferer   = "https://www.bilibili.com/"
+	defaultDouyinReferer     = "https://www.douyin.com/"
 	defaultAcceptLanguage    = "zh-CN,zh;q=0.9,en;q=0.8"
 	minTranscriptRunes       = 40
 )
@@ -149,11 +152,11 @@ func (f *VideoFetcher) Fetch(ctx context.Context, t *task.Task) (string, error) 
 }
 
 func (f *VideoFetcher) probe(ctx context.Context, rawURL string) (ytDLPInfo, error) {
-	args := f.baseYTDLPArgs()
+	args := f.baseYTDLPArgs(rawURL)
 	args = append(args, "--dump-single-json", "--skip-download", "--no-playlist", rawURL)
 	out, err := runCommand(ctx, f.ytDLP, args...)
 	if err != nil {
-		return ytDLPInfo{}, fmt.Errorf("video fetcher: yt-dlp metadata: %w", err)
+		return ytDLPInfo{}, fmt.Errorf("video fetcher: yt-dlp metadata: %w", normalizeYTDLPError(rawURL, err))
 	}
 
 	var info ytDLPInfo
@@ -167,7 +170,7 @@ func (f *VideoFetcher) probe(ctx context.Context, rawURL string) (ytDLPInfo, err
 }
 
 func (f *VideoFetcher) downloadSubtitles(ctx context.Context, workDir, rawURL string) (string, error) {
-	args := f.baseYTDLPArgs()
+	args := f.baseYTDLPArgs(rawURL)
 	args = append(args,
 		"--skip-download",
 		"--no-playlist",
@@ -214,7 +217,7 @@ func (f *VideoFetcher) downloadSubtitles(ctx context.Context, workDir, rawURL st
 }
 
 func (f *VideoFetcher) downloadAudio(ctx context.Context, workDir, rawURL string) (string, error) {
-	args := f.baseYTDLPArgs()
+	args := f.baseYTDLPArgs(rawURL)
 	args = append(args,
 		"--no-playlist",
 		"-f", "bestaudio/best",
@@ -226,7 +229,7 @@ func (f *VideoFetcher) downloadAudio(ctx context.Context, workDir, rawURL string
 		rawURL,
 	)
 	if _, err := runCommand(ctx, f.ytDLP, args...); err != nil {
-		return "", fmt.Errorf("video fetcher: download audio: %w", err)
+		return "", fmt.Errorf("video fetcher: download audio: %w", normalizeYTDLPError(rawURL, err))
 	}
 
 	matches, _ := filepath.Glob(filepath.Join(workDir, "audio.*"))
@@ -356,15 +359,15 @@ func (f *VideoFetcher) transcribeFile(ctx context.Context, audioPath string) (st
 	return payload.Text, nil
 }
 
-func (f *VideoFetcher) baseYTDLPArgs() []string {
+func (f *VideoFetcher) baseYTDLPArgs(rawURL string) []string {
 	args := []string{
 		"--no-warnings",
 	}
 	if f.userAgent != "" {
 		args = append(args, "--user-agent", f.userAgent)
 	}
-	if f.referer != "" {
-		args = append(args, "--referer", f.referer)
+	if referer := f.ytDLPReferer(rawURL); referer != "" {
+		args = append(args, "--referer", referer)
 	}
 	if f.acceptLanguage != "" {
 		args = append(args, "--add-header", "Accept-Language:"+f.acceptLanguage)
@@ -373,6 +376,21 @@ func (f *VideoFetcher) baseYTDLPArgs() []string {
 		args = append(args, "--cookies", f.cookiesFile)
 	}
 	return args
+}
+
+func (f *VideoFetcher) ytDLPReferer(rawURL string) string {
+	if f.referer != "" {
+		return f.referer
+	}
+	host := lowerHostname(rawURL)
+	switch {
+	case isBilibiliHost(host):
+		return defaultBilibiliReferer
+	case isDouyinHost(host):
+		return defaultDouyinReferer
+	default:
+		return ""
+	}
 }
 
 func (f *VideoFetcher) asrConfigured() bool {
@@ -524,6 +542,14 @@ func normalizeSubtitleLines(lines []string) string {
 	return strings.TrimSpace(strings.Join(out, "\n"))
 }
 
+func normalizeYTDLPError(rawURL string, err error) error {
+	msg := strings.ToLower(err.Error())
+	if isDouyinHost(lowerHostname(rawURL)) && strings.Contains(msg, "fresh cookies") {
+		return fmt.Errorf("抖音当前要求 fresh cookies 才能读取该视频；请在部署环境配置 YTDLP_COOKIES_FILE 指向授权 Cookie 文件后重试: %w", err)
+	}
+	return err
+}
+
 func likelyChineseSubtitle(path, text string) bool {
 	name := strings.ToLower(filepath.Base(path))
 	if strings.Contains(name, ".zh") ||
@@ -634,6 +660,28 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+func lowerHostname(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Hostname())
+}
+
+func isBilibiliHost(host string) bool {
+	return host == "b23.tv" ||
+		host == "bili2233.cn" ||
+		host == "bilibili.com" ||
+		strings.HasSuffix(host, ".bilibili.com")
+}
+
+func isDouyinHost(host string) bool {
+	return host == "douyin.com" ||
+		strings.HasSuffix(host, ".douyin.com") ||
+		host == "iesdouyin.com" ||
+		strings.HasSuffix(host, ".iesdouyin.com")
 }
 
 func getenvDefault(key, fallback string) string {
