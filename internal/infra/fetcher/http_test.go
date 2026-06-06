@@ -38,3 +38,22 @@ func TestExtractWechatArticleRequiresContentNode(t *testing.T) {
 		t.Fatal("expected missing content error")
 	}
 }
+
+func TestExtractWechatArticleDetectsVerificationPage(t *testing.T) {
+	body := []byte(`<html><body><script src="/secitptpage/template/verify.js"></script></body></html>`)
+	_, err := extractWechatArticle(body)
+	if err == nil || !strings.Contains(err.Error(), "verification required") {
+		t.Fatalf("expected verification error, got %v", err)
+	}
+}
+
+func TestExtractWechatArticleSupportsAlternateContentContainer(t *testing.T) {
+	body := []byte(`<html><body><div class="rich_media_content"><p>备用正文容器中的有效文章内容。</p></div></body></html>`)
+	text, err := extractWechatArticle(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(text, "备用正文容器") {
+		t.Fatalf("unexpected extracted text: %s", text)
+	}
+}

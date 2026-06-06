@@ -42,3 +42,12 @@ func TestSnapshotJSONMatchesDashboardContract(t *testing.T) {
 		t.Fatalf("unexpected snapshot steps: %+v", payload.Steps)
 	}
 }
+
+func TestRawContentCanBeUpdatedAfterFetch(t *testing.T) {
+	item := New("task-1", "user-1", SourceManual, ContentWebPage, "https://example.com", "")
+	item.SetRawContent("fetched article content")
+
+	if got := item.RawContent(); got != "fetched article content" {
+		t.Fatalf("unexpected raw content: %q", got)
+	}
+}

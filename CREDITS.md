@@ -17,6 +17,20 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
 
 ---
 
+## 专项实现参考
+
+<table border="1" cellpadding="8" cellspacing="0">
+  <tr><th>项目</th><th>许可证</th><th>参考内容</th><th>接入方式</th></tr>
+  <tr>
+    <td><a href="https://github.com/huanjuedadehen/wechat-article-parser">wechat-article-parser</a></td>
+    <td>MIT</td>
+    <td>微信公众号文章类型识别、验证页检测、元数据与多种正文容器提取策略</td>
+    <td>作为实现参考；Codo 使用 Go + goquery 独立实现，不引入 Python 运行时</td>
+  </tr>
+</table>
+
+---
+
 ## 已接入的开源依赖
 
 <table border="1" cellpadding="8" cellspacing="0">
@@ -25,7 +39,7 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
   <tr><td>订阅源</td><td><a href="https://github.com/mmcdole/gofeed">mmcdole/gofeed</a></td><td>RSS / Atom / JSON Feed 统一解析</td></tr>
   <tr><td>网页抓取</td><td><a href="https://codeberg.org/readeck/go-readability">readeck/go-readability</a></td><td>网页正文提取</td></tr>
   <tr><td>安全清洗</td><td><a href="https://github.com/microcosm-cc/bluemonday">microcosm-cc/bluemonday</a></td><td>HTML 安全清洗，入库 / 展示前 sanitize</td></tr>
-  <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析，可用于特定网站规则抓取</td></tr>
+  <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取</td></tr>
   <tr><td>数据存储</td><td><a href="https://github.com/jackc/pgx">jackc/pgx</a></td><td>PostgreSQL 驱动与连接池</td></tr>
   <tr><td>知识库</td><td><a href="https://github.com/pgvector/pgvector">pgvector/pgvector</a></td><td>PostgreSQL 向量字段和向量索引</td></tr>
   <tr><td>去重</td><td><a href="https://github.com/cespare/xxhash">cespare/xxhash</a></td><td>URL / 内容 hash，用于快速去重</td></tr>

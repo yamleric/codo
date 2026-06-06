@@ -197,6 +197,7 @@ func (p *WebPagePipeline) Run(ctx context.Context, t *task.Task) error {
 	if err != nil {
 		return p.fail(ctx, t, "抓取网页", err, start)
 	}
+	t.SetRawContent(content)
 	p.addStep(ctx, t, "抓取网页", task.StepOK, fmt.Sprintf("%d 字", len([]rune(content))), start)
 
 	if err := p.setStatus(ctx, t, task.StatusFiltering); err != nil {
@@ -258,6 +259,7 @@ func (p *VideoPipeline) Run(ctx context.Context, t *task.Task) error {
 	if err != nil {
 		return p.fail(ctx, t, "获取字幕", err, start)
 	}
+	t.SetRawContent(transcript)
 	p.addStep(ctx, t, "获取字幕", task.StepOK, fmt.Sprintf("%d 字", len([]rune(transcript))), start)
 
 	t.SetFilterDecision(task.FilterPass) // user explicitly submitted; no filter needed
@@ -316,7 +318,7 @@ func (p *EmailPipeline) Run(ctx context.Context, t *task.Task) error {
 	}
 
 	start := time.Now()
-	raw, err := p.classifier.Classify(ctx, t.RawContent)
+	raw, err := p.classifier.Classify(ctx, t.RawContent())
 	if err != nil {
 		return p.fail(ctx, t, "邮件分类", err, start)
 	}
@@ -342,7 +344,7 @@ func (p *EmailPipeline) Run(ctx context.Context, t *task.Task) error {
 		return err
 	}
 	start = time.Now()
-	summary, err := p.summarizer.Summarize(ctx, t, t.RawContent)
+	summary, err := p.summarizer.Summarize(ctx, t, t.RawContent())
 	if err != nil {
 		return p.fail(ctx, t, "生成摘要", err, start)
 	}
@@ -371,7 +373,7 @@ func (p *MessagePipeline) Run(ctx context.Context, t *task.Task) error {
 	}
 
 	start := time.Now()
-	digest, err := p.extractor.Extract(ctx, t.RawContent)
+	digest, err := p.extractor.Extract(ctx, t.RawContent())
 	if err != nil {
 		return p.fail(ctx, t, "提炼关键信息", err, start)
 	}
