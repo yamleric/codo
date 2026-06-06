@@ -466,7 +466,7 @@ func runtimeSettings() settingsRuntime {
 	_, ffmpegErr := exec.LookPath(getenv("FFMPEG_BIN", "ffmpeg"))
 	return settingsRuntime{
 		LLMConfigured:          os.Getenv("LLM_API_KEY") != "",
-		ASRConfigured:          getenv("ASR_API_KEY", os.Getenv("LLM_API_KEY")) != "",
+		ASRConfigured:          os.Getenv("ASR_BASE_URL") != "" && os.Getenv("ASR_API_KEY") != "",
 		TelegramConfigured:     os.Getenv("TELEGRAM_TOKEN") != "",
 		YTDLPConfigured:        ytDLPErr == nil,
 		YTDLPCookiesSet:        os.Getenv("YTDLP_COOKIES_FILE") != "" || os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
