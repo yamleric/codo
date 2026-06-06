@@ -9,6 +9,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/codo/codo/internal/application/ingest"
 	"github.com/codo/codo/internal/application/pipeline"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
@@ -37,6 +38,7 @@ func main() {
 
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, &logNotifier{}, nil),
+		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, &logNotifier{}, nil),
 	)
 	if err != nil {
 		slog.Error("router init", "err", err)
@@ -86,11 +88,16 @@ func runRSS(ctx context.Context, st *store.Store, router *pipeline.Router) {
 		slog.Info("rss fetched", "url", sub.FeedURL, "items", len(items))
 
 		for _, item := range items {
+			contentType := task.ContentWebPage
+			if normalizedURL, err := ingest.NormalizeURL(item.URL); err == nil {
+				item.URL = normalizedURL
+				contentType = ingest.DetectContentType(normalizedURL)
+			}
 			t := task.New(
 				fmt.Sprintf("rss-%d", time.Now().UnixNano()),
 				sub.UserID,
 				task.SourceRSS,
-				task.ContentWebPage,
+				contentType,
 				item.URL,
 				"",
 			)

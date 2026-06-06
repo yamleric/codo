@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/codo/codo/internal/application/ingest"
 	"github.com/codo/codo/internal/application/pipeline"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
@@ -72,13 +73,19 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid url", http.StatusBadRequest)
 		return
 	}
+	normalizedURL, err := ingest.NormalizeURL(body.URL)
+	if err != nil {
+		http.Error(w, "invalid url", http.StatusBadRequest)
+		return
+	}
+	contentType := ingest.DetectContentType(normalizedURL)
 
 	userID := getenv("DEFAULT_USER_ID", "demo-user")
 	id := fmt.Sprintf("task-%d", time.Now().UnixMilli())
-	t := task.New(id, userID, task.SourceManual, task.ContentWebPage, body.URL, "")
+	t := task.New(id, userID, task.SourceManual, contentType, normalizedURL, "")
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), taskTimeout(contentType))
 		defer cancel()
 		if err := s.router.Run(ctx, t); err != nil {
 			slog.Error("task failed", "id", id, "err", err)
@@ -118,7 +125,7 @@ func (s *server) retryTask(w http.ResponseWriter, r *http.Request) {
 		task.ContentType(existing.ContentType), existing.URL, "")
 
 	go func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		ctx, cancel := context.WithTimeout(context.Background(), taskTimeout(t.ContentType))
 		defer cancel()
 		_ = s.router.Run(ctx, t)
 	}()
@@ -209,6 +216,7 @@ func main() {
 	srv := &server{st: st, hub: h}
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, notifier, srv.onStatus),
+		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, notifier, srv.onStatus),
 	)
 	if err != nil {
 		slog.Error("router init", "err", err)
@@ -263,4 +271,11 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func taskTimeout(contentType task.ContentType) time.Duration {
+	if contentType == task.ContentVideo {
+		return 30 * time.Minute
+	}
+	return 5 * time.Minute
 }

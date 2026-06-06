@@ -42,7 +42,7 @@
 <table border="1" cellpadding="8" cellspacing="0">
   <tr><th>功能</th><th>描述</th><th>用法</th></tr>
   <tr><td>网页自动总结</td><td>收藏任意网页链接，AI 自动抓取正文并生成内容摘要</td><td>刷到一篇没时间看的文章，发链接给 Codo，直接收到总结</td></tr>
-  <tr><td>视频内容分析</td><td>导入 YouTube、B站等视频链接，自动生成摘要，无需观看全片</td><td>看到一个一小时的技术分享视频，想知道讲了什么</td></tr>
+  <tr><td>视频内容分析</td><td>导入 B站、抖音等视频链接，自动识别平台并生成摘要，无需观看全片</td><td>看到一个一小时的技术分享视频，想知道讲了什么</td></tr>
   <tr><td>RSS 聚合</td><td>订阅博客、新闻站，每日自动汇总精华，一条消息看完所有更新</td><td>每天早上一条消息，看完所有关注的博客和新闻动态</td></tr>
 </table>
 
@@ -106,6 +106,7 @@
   <tr><td>数据库</td><td>PostgreSQL + pgvector</td><td>结构化数据 + 向量检索，支持语义搜索知识库</td></tr>
   <tr><td>任务队列</td><td>Redis Streams</td><td>异步任务调度，支持重试和状态追踪</td></tr>
   <tr><td>网页抓取</td><td>Playwright + Flaresolverr</td><td>云端浏览器，处理 JS 渲染、懒加载、CF 防护</td></tr>
+  <tr><td>视频抓取</td><td>yt-dlp + FFmpeg</td><td>提取公开视频字幕和音频，供 AI 总结或 ASR 转写</td></tr>
   <tr><td>容器化</td><td>Docker</td><td>每个服务独立打包，环境一致</td></tr>
   <tr><td>本地开发</td><td>docker-compose</td><td>一条命令启动全部服务</td></tr>
   <tr><td>云端部署</td><td>Railway</td><td>推代码自动部署，按用量计费</td></tr>

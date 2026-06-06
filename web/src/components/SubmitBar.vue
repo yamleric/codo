@@ -4,16 +4,16 @@
       <span class="submit-icon"><Link2 :size="18" /></span>
       <div>
         <strong>提交新链接</strong>
-        <span>网页、文章或公开文档</span>
+        <span>网页、公众号、B站或抖音链接</span>
       </div>
     </div>
     <form class="submit-form" @submit.prevent="submit">
       <input
         v-model="url"
-        type="url"
+        type="text"
         inputmode="url"
         autocomplete="url"
-        placeholder="https://example.com/article"
+        placeholder="粘贴网页、B站或抖音分享链接"
         aria-label="要收藏的链接"
         :disabled="loading"
         @input="error = ''"
@@ -40,8 +40,14 @@ const error = ref('')
 
 async function submit() {
   if (!url.value.trim() || loading.value) return
+  const match = url.value.trim().match(/https?:\/\/[^\s<>"']+/)
+  if (!match) {
+    error.value = '请输入或粘贴包含 http / https 的链接。'
+    return
+  }
+  const normalized = match[0].replace(/[.,;:!?，。；：！？)\]}）】》>]+$/, '')
   try {
-    const parsed = new URL(url.value.trim())
+    const parsed = new URL(normalized)
     if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error()
   } catch {
     error.value = '请输入有效的 http 或 https 链接。'
