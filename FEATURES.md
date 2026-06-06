@@ -24,10 +24,11 @@
 <table border="1" cellpadding="8" cellspacing="0">
   <tr><th>项目</th><th>说明</th></tr>
   <tr><td>需求</td><td>发送视频链接，自动生成内容摘要，无需观看全片</td></tr>
-  <tr><td>B站</td><td>通过 API 获取字幕，无字幕则 AI 语音转文字</td></tr>
-  <tr><td>抖音</td><td>获取视频文字稿或语音识别提取内容</td></tr>
+  <tr><td>B站</td><td>自动识别 bilibili.com / b23.tv 链接，优先获取字幕，无字幕则通过 ASR 转写音频</td></tr>
+  <tr><td>抖音</td><td>自动识别 douyin.com / v.douyin.com 分享链接，优先获取字幕或文案，无字幕则通过 ASR 转写音频</td></tr>
   <tr><td>处理方式</td><td>获取文字稿 → 分段处理 → 合并摘要 → 存知识库 → 推送</td></tr>
   <tr><td>输出示例</td><td>🎬 标题 / 时长 / 内容摘要 / 关键要点列表</td></tr>
+  <tr><td>运行依赖</td><td>yt-dlp + FFmpeg；ASR 使用 OpenAI-compatible /audio/transcriptions（ASR_* 环境变量）</td></tr>
 </table>
 
 ---

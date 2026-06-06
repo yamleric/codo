@@ -17,7 +17,9 @@ RUN npm run build
 
 # Final image
 FROM alpine:3.21
-RUN apk add --no-cache ca-certificates tzdata
+ARG YTDLP_VERSION=2026.03.17
+RUN apk add --no-cache ca-certificates tzdata ffmpeg python3 py3-pip && \
+    pip3 install --no-cache-dir --break-system-packages "yt-dlp[default]==${YTDLP_VERSION}"
 WORKDIR /app
 COPY --from=builder /api .
 COPY --from=builder /scheduler .

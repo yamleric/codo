@@ -40,6 +40,8 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
   <tr><td>网页抓取</td><td><a href="https://codeberg.org/readeck/go-readability">readeck/go-readability</a></td><td>网页正文提取</td></tr>
   <tr><td>安全清洗</td><td><a href="https://github.com/microcosm-cc/bluemonday">microcosm-cc/bluemonday</a></td><td>HTML 安全清洗，入库 / 展示前 sanitize</td></tr>
   <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取</td></tr>
+  <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>B站 / 抖音公开视频元数据、字幕和音频下载</td></tr>
+  <tr><td>音频处理</td><td><a href="https://github.com/FFmpeg/FFmpeg">FFmpeg/FFmpeg</a></td><td>视频音频提取、转码和 ASR 切片</td></tr>
   <tr><td>数据存储</td><td><a href="https://github.com/jackc/pgx">jackc/pgx</a></td><td>PostgreSQL 驱动与连接池</td></tr>
   <tr><td>知识库</td><td><a href="https://github.com/pgvector/pgvector">pgvector/pgvector</a></td><td>PostgreSQL 向量字段和向量索引</td></tr>
   <tr><td>去重</td><td><a href="https://github.com/cespare/xxhash">cespare/xxhash</a></td><td>URL / 内容 hash，用于快速去重</td></tr>
@@ -67,7 +69,7 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
   <tr><td>浏览器抓取</td><td><a href="https://github.com/chromedp/chromedp">chromedp/chromedp</a></td><td>基于 Chrome DevTools Protocol 的 Go 原生自动化</td><td>比 Playwright 轻，复杂站点兼容性需验证</td></tr>
   <tr><td>爬虫框架</td><td><a href="https://github.com/gocolly/colly">gocolly/colly</a></td><td>规则化抓取网站列表页、分页、详情页</td><td>适合 linux.do 等结构化 source 插件</td></tr>
   <tr><td>反爬兜底</td><td><a href="https://github.com/FlareSolverr/FlareSolverr">FlareSolverr/FlareSolverr</a></td><td>Cloudflare 防护页面兜底抓取</td><td>作为外部服务接入，不建议作为默认路径</td></tr>
-  <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>获取公开视频元数据、字幕、音频</td><td>适合 VideoPipeline，注意平台规则和速率限制</td></tr>
+  <tr><td>本地 ASR</td><td><a href="https://github.com/SYSTRAN/faster-whisper">SYSTRAN/faster-whisper</a></td><td>不走外部 ASR API 时，在独立 video-fetcher 服务内本地转写音频</td><td>需要模型文件和较重运行时，适合后续 sidecar 化</td></tr>
   <tr><td>订阅源</td><td><a href="https://github.com/DIYgod/RSSHub">DIYgod/RSSHub</a></td><td>把网站、公众号、社区内容转换成 RSS</td><td>建议作为外部 source，而不是耦合进主服务</td></tr>
   <tr><td>邮件</td><td><a href="https://github.com/emersion/go-imap">emersion/go-imap</a></td><td>IMAP 邮件拉取</td><td>接入 EmailPipeline 前再引入</td></tr>
   <tr><td>邮件</td><td><a href="https://github.com/jhillyerd/enmime">jhillyerd/enmime</a></td><td>邮件 MIME 解析、正文和附件提取</td><td>与 IMAP source 配套使用</td></tr>

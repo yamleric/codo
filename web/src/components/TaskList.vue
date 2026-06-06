@@ -36,6 +36,7 @@
           <div class="task-main">
             <div class="task-meta">
               <span :class="statusTone(task.status)" class="status-label">{{ statusLabel(task.status) }}</span>
+              <span>{{ contentTypeLabel(task.content_type) }}</span>
               <span>{{ sourceLabel(task.source) }}</span>
               <span>{{ timeAgo(task.created_at) }}</span>
             </div>
@@ -183,6 +184,17 @@ function sourceLabel(source: string) {
     group_chat: '群消息',
   }
   return labels[source] ?? source ?? '手动提交'
+}
+
+function contentTypeLabel(contentType: string) {
+  const labels: Record<string, string> = {
+    webpage: '网页',
+    video: '视频',
+    email: '邮件',
+    post: '帖子',
+    message: '消息',
+  }
+  return labels[contentType] ?? contentType ?? '内容'
 }
 
 function taskName(url: string) {

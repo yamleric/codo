@@ -257,10 +257,10 @@ func (p *VideoPipeline) Run(ctx context.Context, t *task.Task) error {
 	start := time.Now()
 	transcript, err := p.fetcher.Fetch(ctx, t)
 	if err != nil {
-		return p.fail(ctx, t, "获取字幕", err, start)
+		return p.fail(ctx, t, "获取视频文字稿", err, start)
 	}
 	t.SetRawContent(transcript)
-	p.addStep(ctx, t, "获取字幕", task.StepOK, fmt.Sprintf("%d 字", len([]rune(transcript))), start)
+	p.addStep(ctx, t, "获取视频文字稿", task.StepOK, fmt.Sprintf("%d 字", len([]rune(transcript))), start)
 
 	t.SetFilterDecision(task.FilterPass) // user explicitly submitted; no filter needed
 	if t.Source != task.SourceManual {

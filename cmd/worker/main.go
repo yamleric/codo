@@ -7,6 +7,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/codo/codo/internal/application/ingest"
 	"github.com/codo/codo/internal/application/pipeline"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
@@ -51,6 +52,7 @@ func main() {
 	// ── 组装 pipeline ─────────────────────────────────────────────
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, notifier, onStatus),
+		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, notifier, onStatus),
 	)
 	if err != nil {
 		slog.Error("router init", "err", err)
@@ -59,10 +61,15 @@ func main() {
 
 	// ── 测试任务：抓取一个网页 ─────────────────────────────────────
 	url := getenv("TEST_URL", "https://go.dev/blog/")
+	normalizedURL, err := ingest.NormalizeURL(url)
+	if err != nil {
+		slog.Error("invalid test url", "err", err)
+		os.Exit(1)
+	}
 	taskID := fmt.Sprintf("task-%d", time.Now().UnixMilli())
-	t := task.New(taskID, "demo-user", task.SourceManual, task.ContentWebPage, url, "")
+	t := task.New(taskID, "demo-user", task.SourceManual, ingest.DetectContentType(normalizedURL), normalizedURL, "")
 
-	slog.Info("running task", "url", url)
+	slog.Info("running task", "url", normalizedURL, "content_type", t.ContentType)
 	if err := router.Run(ctx, t); err != nil {
 		slog.Error("task failed", "err", err, "steps", len(t.Steps()))
 	} else {

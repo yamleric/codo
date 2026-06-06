@@ -134,6 +134,34 @@ codo/
 
 ---
 
+## 视频内容处理
+
+VideoPipeline 用于处理用户粘贴的 B站 / 抖音公开链接。入口层先从用户输入中抽取第一个 `http(s)` URL，再根据域名识别为 `ContentVideo`：
+
+- B站：`bilibili.com`、`b23.tv`、`bili2233.cn`
+- 抖音：`douyin.com`、`v.douyin.com`、`iesdouyin.com`
+
+执行流程：
+
+```text
+解析链接 → yt-dlp 获取元数据 → 优先提取字幕 → 无字幕则下载音频 → ffmpeg 切片 → ASR 转写 → LLM 总结 → 入库 / 通知
+```
+
+当前实现把视频抓取封装在 `internal/infra/fetcher.VideoFetcher`，主 Pipeline 只依赖 `Fetcher` 接口。这样后续可以把 `yt-dlp + ffmpeg + ASR` 迁移到独立 `video-fetcher` sidecar，而不用改业务编排。
+
+运行时配置：
+
+- `YTDLP_BIN`：yt-dlp 可执行文件，默认 `yt-dlp`
+- `FFMPEG_BIN`：ffmpeg 可执行文件，默认 `ffmpeg`
+- `VIDEO_SUB_LANGS`：字幕语言优先级，默认中文优先、英文兜底
+- `VIDEO_MAX_DURATION_SECONDS`：视频最长处理时长，默认 2 小时
+- `ASR_BASE_URL` / `ASR_API_KEY` / `ASR_MODEL`：OpenAI-compatible `/audio/transcriptions` 配置，默认回退到 `LLM_BASE_URL` / `LLM_API_KEY` / `whisper-1`
+- `YTDLP_COOKIES_FILE`：可选 Cookie 文件路径，仅用于用户明确授权的内容；不要把 Cookie 写入日志、数据库或仓库
+
+合规边界：只处理用户提交的公开或已授权内容，不绕过 DRM、会员限制、私密内容或平台访问控制。
+
+---
+
 ## 核心表设计
 
 ```sql
