@@ -388,12 +388,13 @@ type settingsResponse struct {
 }
 
 type settingsRuntime struct {
-	LLMConfigured      bool `json:"llm_configured"`
-	ASRConfigured      bool `json:"asr_configured"`
-	TelegramConfigured bool `json:"telegram_configured"`
-	YTDLPConfigured    bool `json:"yt_dlp_configured"`
-	YTDLPCookiesSet    bool `json:"yt_dlp_cookies_set"`
-	FFMPEGConfigured   bool `json:"ffmpeg_configured"`
+	LLMConfigured          bool `json:"llm_configured"`
+	ASRConfigured          bool `json:"asr_configured"`
+	TelegramConfigured     bool `json:"telegram_configured"`
+	YTDLPConfigured        bool `json:"yt_dlp_configured"`
+	YTDLPCookiesSet        bool `json:"yt_dlp_cookies_set"`
+	YTDLPBrowserCookiesSet bool `json:"yt_dlp_browser_cookies_set"`
+	FFMPEGConfigured       bool `json:"ffmpeg_configured"`
 }
 
 type settingsPatch struct {
@@ -464,12 +465,13 @@ func runtimeSettings() settingsRuntime {
 	_, ytDLPErr := exec.LookPath(getenv("YTDLP_BIN", "yt-dlp"))
 	_, ffmpegErr := exec.LookPath(getenv("FFMPEG_BIN", "ffmpeg"))
 	return settingsRuntime{
-		LLMConfigured:      os.Getenv("LLM_API_KEY") != "",
-		ASRConfigured:      getenv("ASR_API_KEY", os.Getenv("LLM_API_KEY")) != "",
-		TelegramConfigured: os.Getenv("TELEGRAM_TOKEN") != "",
-		YTDLPConfigured:    ytDLPErr == nil,
-		YTDLPCookiesSet:    os.Getenv("YTDLP_COOKIES_FILE") != "",
-		FFMPEGConfigured:   ffmpegErr == nil,
+		LLMConfigured:          os.Getenv("LLM_API_KEY") != "",
+		ASRConfigured:          getenv("ASR_API_KEY", os.Getenv("LLM_API_KEY")) != "",
+		TelegramConfigured:     os.Getenv("TELEGRAM_TOKEN") != "",
+		YTDLPConfigured:        ytDLPErr == nil,
+		YTDLPCookiesSet:        os.Getenv("YTDLP_COOKIES_FILE") != "" || os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
+		YTDLPBrowserCookiesSet: os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
+		FFMPEGConfigured:       ffmpegErr == nil,
 	}
 }
 

@@ -102,6 +102,34 @@ func TestBaseYTDLPArgsAllowRefererOverride(t *testing.T) {
 	}
 }
 
+func TestBaseYTDLPArgsUseBrowserCookies(t *testing.T) {
+	f := &VideoFetcher{
+		userAgent:          defaultYTDLPUserAgent,
+		acceptLanguage:     defaultAcceptLanguage,
+		cookiesFromBrowser: "chrome:/home/ubuntu/.config/google-chrome",
+	}
+	got := strings.Join(f.baseYTDLPArgs("https://www.douyin.com/video/123"), "\n")
+	if !strings.Contains(got, "--cookies-from-browser\nchrome:/home/ubuntu/.config/google-chrome") {
+		t.Fatalf("missing browser cookies arg: %q", got)
+	}
+}
+
+func TestBaseYTDLPArgsPreferCookiesFile(t *testing.T) {
+	f := &VideoFetcher{
+		userAgent:          defaultYTDLPUserAgent,
+		acceptLanguage:     defaultAcceptLanguage,
+		cookiesFile:        "/run/secrets/yt-dlp.cookies.txt",
+		cookiesFromBrowser: "chrome:/home/ubuntu/.config/google-chrome",
+	}
+	got := strings.Join(f.baseYTDLPArgs("https://www.douyin.com/video/123"), "\n")
+	if !strings.Contains(got, "--cookies\n/run/secrets/yt-dlp.cookies.txt") {
+		t.Fatalf("missing cookies file arg: %q", got)
+	}
+	if strings.Contains(got, "--cookies-from-browser") {
+		t.Fatalf("browser cookies should not be used when cookies file is set: %q", got)
+	}
+}
+
 func TestNormalizeYTDLPErrorExplainsDouyinCookies(t *testing.T) {
 	err := normalizeYTDLPError(
 		"https://www.douyin.com/video/7646064198796108537",
@@ -109,7 +137,8 @@ func TestNormalizeYTDLPErrorExplainsDouyinCookies(t *testing.T) {
 	)
 	got := err.Error()
 	if !strings.Contains(got, "抖音当前要求 fresh cookies") ||
-		!strings.Contains(got, "YTDLP_COOKIES_FILE") {
+		!strings.Contains(got, "YTDLP_COOKIES_FILE") ||
+		!strings.Contains(got, "YTDLP_COOKIES_FROM_BROWSER") {
 		t.Fatalf("unexpected normalized error: %q", got)
 	}
 }

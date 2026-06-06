@@ -46,20 +46,21 @@ var (
 // It prefers platform subtitles and falls back to audio transcription when an
 // OpenAI-compatible audio transcription endpoint is configured.
 type VideoFetcher struct {
-	ytDLP             string
-	ffmpeg            string
-	cookiesFile       string
-	userAgent         string
-	referer           string
-	acceptLanguage    string
-	subtitleLanguages string
-	asrBaseURL        string
-	asrAPIKey         string
-	asrModel          string
-	asrChunkSeconds   int
-	maxAudioBytes     int64
-	maxDurationSec    int
-	http              *http.Client
+	ytDLP              string
+	ffmpeg             string
+	cookiesFile        string
+	cookiesFromBrowser string
+	userAgent          string
+	referer            string
+	acceptLanguage     string
+	subtitleLanguages  string
+	asrBaseURL         string
+	asrAPIKey          string
+	asrModel           string
+	asrChunkSeconds    int
+	maxAudioBytes      int64
+	maxDurationSec     int
+	http               *http.Client
 }
 
 type ytDLPInfo struct {
@@ -85,20 +86,21 @@ type ytDLPSubInfo struct {
 // NewVideo creates a VideoFetcher from environment variables.
 func NewVideo() *VideoFetcher {
 	return &VideoFetcher{
-		ytDLP:             getenvDefault("YTDLP_BIN", "yt-dlp"),
-		ffmpeg:            getenvDefault("FFMPEG_BIN", "ffmpeg"),
-		cookiesFile:       os.Getenv("YTDLP_COOKIES_FILE"),
-		userAgent:         getenvDefault("YTDLP_USER_AGENT", defaultYTDLPUserAgent),
-		referer:           getenvDefault("YTDLP_REFERER", defaultYTDLPReferer),
-		acceptLanguage:    getenvDefault("YTDLP_ACCEPT_LANGUAGE", defaultAcceptLanguage),
-		subtitleLanguages: getenvDefault("VIDEO_SUB_LANGS", defaultSubtitleLanguages),
-		asrBaseURL:        getenvDefault("ASR_BASE_URL", getenvDefault("LLM_BASE_URL", "https://api.openai.com/v1")),
-		asrAPIKey:         getenvDefault("ASR_API_KEY", os.Getenv("LLM_API_KEY")),
-		asrModel:          getenvDefault("ASR_MODEL", defaultASRModel),
-		asrChunkSeconds:   getenvInt("ASR_CHUNK_SECONDS", defaultASRChunkSeconds),
-		maxAudioBytes:     int64(getenvInt("ASR_MAX_AUDIO_BYTES", defaultMaxAudioBytes)),
-		maxDurationSec:    getenvInt("VIDEO_MAX_DURATION_SECONDS", defaultMaxDurationSec),
-		http:              &http.Client{Timeout: 10 * time.Minute},
+		ytDLP:              getenvDefault("YTDLP_BIN", "yt-dlp"),
+		ffmpeg:             getenvDefault("FFMPEG_BIN", "ffmpeg"),
+		cookiesFile:        os.Getenv("YTDLP_COOKIES_FILE"),
+		cookiesFromBrowser: os.Getenv("YTDLP_COOKIES_FROM_BROWSER"),
+		userAgent:          getenvDefault("YTDLP_USER_AGENT", defaultYTDLPUserAgent),
+		referer:            getenvDefault("YTDLP_REFERER", defaultYTDLPReferer),
+		acceptLanguage:     getenvDefault("YTDLP_ACCEPT_LANGUAGE", defaultAcceptLanguage),
+		subtitleLanguages:  getenvDefault("VIDEO_SUB_LANGS", defaultSubtitleLanguages),
+		asrBaseURL:         getenvDefault("ASR_BASE_URL", getenvDefault("LLM_BASE_URL", "https://api.openai.com/v1")),
+		asrAPIKey:          getenvDefault("ASR_API_KEY", os.Getenv("LLM_API_KEY")),
+		asrModel:           getenvDefault("ASR_MODEL", defaultASRModel),
+		asrChunkSeconds:    getenvInt("ASR_CHUNK_SECONDS", defaultASRChunkSeconds),
+		maxAudioBytes:      int64(getenvInt("ASR_MAX_AUDIO_BYTES", defaultMaxAudioBytes)),
+		maxDurationSec:     getenvInt("VIDEO_MAX_DURATION_SECONDS", defaultMaxDurationSec),
+		http:               &http.Client{Timeout: 10 * time.Minute},
 	}
 }
 
@@ -374,6 +376,8 @@ func (f *VideoFetcher) baseYTDLPArgs(rawURL string) []string {
 	}
 	if f.cookiesFile != "" {
 		args = append(args, "--cookies", f.cookiesFile)
+	} else if f.cookiesFromBrowser != "" {
+		args = append(args, "--cookies-from-browser", f.cookiesFromBrowser)
 	}
 	return args
 }
@@ -545,7 +549,7 @@ func normalizeSubtitleLines(lines []string) string {
 func normalizeYTDLPError(rawURL string, err error) error {
 	msg := strings.ToLower(err.Error())
 	if isDouyinHost(lowerHostname(rawURL)) && strings.Contains(msg, "fresh cookies") {
-		return fmt.Errorf("抖音当前要求 fresh cookies 才能读取该视频；请在部署环境配置 YTDLP_COOKIES_FILE 指向授权 Cookie 文件后重试: %w", err)
+		return fmt.Errorf("抖音当前要求 fresh cookies 才能读取该视频；请在部署环境配置 YTDLP_COOKIES_FILE 或 YTDLP_COOKIES_FROM_BROWSER 后重试: %w", err)
 	}
 	return err
 }

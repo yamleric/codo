@@ -28,9 +28,15 @@ services:
       ASR_BASE_URL: ${ASR_BASE_URL:-}
       ASR_API_KEY: ${ASR_API_KEY:-}
       ASR_MODEL: ${ASR_MODEL:-whisper-1}
+      YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
+      YTDLP_COOKIES_FROM_BROWSER: ${YTDLP_COOKIES_FROM_BROWSER:-}
+      YTDLP_USER_AGENT: ${YTDLP_USER_AGENT:-}
+      YTDLP_REFERER: ${YTDLP_REFERER:-}
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
       DEFAULT_USER_ID: ${DEFAULT_USER_ID:-demo-user}
       WEB_DIR: ./web/dist
+    volumes:
+      - ./secrets:/run/codo-secrets:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -47,6 +53,12 @@ services:
       ASR_BASE_URL: ${ASR_BASE_URL:-}
       ASR_API_KEY: ${ASR_API_KEY:-}
       ASR_MODEL: ${ASR_MODEL:-whisper-1}
+      YTDLP_COOKIES_FILE: ${YTDLP_COOKIES_FILE:-}
+      YTDLP_COOKIES_FROM_BROWSER: ${YTDLP_COOKIES_FROM_BROWSER:-}
+      YTDLP_USER_AGENT: ${YTDLP_USER_AGENT:-}
+      YTDLP_REFERER: ${YTDLP_REFERER:-}
+    volumes:
+      - ./secrets:/run/codo-secrets:ro
     depends_on:
       postgres:
         condition: service_healthy

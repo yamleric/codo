@@ -45,6 +45,7 @@ export interface SettingsRuntime {
   telegram_configured: boolean
   yt_dlp_configured: boolean
   yt_dlp_cookies_set: boolean
+  yt_dlp_browser_cookies_set: boolean
   ffmpeg_configured: boolean
 }
 

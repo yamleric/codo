@@ -106,7 +106,7 @@
   <tr><td>数据库</td><td>PostgreSQL + pgvector</td><td>结构化数据 + 向量检索，支持语义搜索知识库</td></tr>
   <tr><td>任务队列</td><td>Redis Streams</td><td>异步任务调度，支持重试和状态追踪</td></tr>
   <tr><td>网页抓取</td><td>Playwright + Flaresolverr</td><td>云端浏览器，处理 JS 渲染、懒加载、CF 防护</td></tr>
-  <tr><td>视频抓取</td><td>yt-dlp + FFmpeg</td><td>提取公开视频字幕和音频，供 AI 总结或 ASR 转写</td></tr>
+  <tr><td>视频抓取</td><td>yt-dlp + FFmpeg</td><td>提取公开视频字幕和音频；需要授权态的平台可配置 cookies 文件或浏览器 cookies 来源</td></tr>
   <tr><td>容器化</td><td>Docker</td><td>每个服务独立打包，环境一致</td></tr>
   <tr><td>本地开发</td><td>docker-compose</td><td>一条命令启动全部服务</td></tr>
   <tr><td>云端部署</td><td>Railway</td><td>推代码自动部署，按用量计费</td></tr>
