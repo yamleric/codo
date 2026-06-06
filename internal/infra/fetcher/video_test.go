@@ -79,6 +79,35 @@ func TestBaseYTDLPArgsUseBrowserHeaders(t *testing.T) {
 	}
 }
 
+func TestNewVideoDoesNotUseLLMConfigAsASRFallback(t *testing.T) {
+	t.Setenv("LLM_BASE_URL", "https://llm.example/v1")
+	t.Setenv("LLM_API_KEY", "llm-key")
+	t.Setenv("ASR_BASE_URL", "")
+	t.Setenv("ASR_API_KEY", "")
+	t.Setenv("ASR_MODEL", "")
+
+	f := NewVideo()
+	if f.asrConfigured() {
+		t.Fatalf("ASR should require explicit ASR_BASE_URL and ASR_API_KEY")
+	}
+	if f.asrBaseURL != "" || f.asrAPIKey != "" {
+		t.Fatalf("ASR config should not fallback to LLM config: base=%q key_set=%t", f.asrBaseURL, f.asrAPIKey != "")
+	}
+}
+
+func TestNewVideoUsesExplicitASRConfig(t *testing.T) {
+	t.Setenv("ASR_BASE_URL", "https://asr.example/v1")
+	t.Setenv("ASR_API_KEY", "asr-key")
+	t.Setenv("ASR_MODEL", "")
+	f := NewVideo()
+	if !f.asrConfigured() {
+		t.Fatalf("ASR should be configured when explicit ASR endpoint and key are set")
+	}
+	if f.asrBaseURL != "https://asr.example/v1" || f.asrAPIKey != "asr-key" || f.asrModel != defaultASRModel {
+		t.Fatalf("unexpected ASR config: base=%q key_set=%t model=%q", f.asrBaseURL, f.asrAPIKey != "", f.asrModel)
+	}
+}
+
 func TestBaseYTDLPArgsUseDouyinReferer(t *testing.T) {
 	f := &VideoFetcher{
 		userAgent:      defaultYTDLPUserAgent,
