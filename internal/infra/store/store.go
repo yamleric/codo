@@ -2,12 +2,16 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cespare/xxhash/v2"
 	"github.com/codo/codo/internal/application/pipeline"
 	"github.com/codo/codo/internal/domain/task"
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -21,6 +25,9 @@ func New(db *pgxpool.Pool) *Store {
 }
 
 func (s *Store) SaveTaskState(ctx context.Context, t *task.Task) error {
+	if err := s.ensureUser(ctx, t.UserID); err != nil {
+		return err
+	}
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO tasks (id, user_id, source, content_type, url, raw_content,
 		                   status, filter_decision, summary, error, created_at, updated_at)
@@ -172,48 +179,237 @@ func (s *Store) listSteps(ctx context.Context, taskID string) ([]StepRow, error)
 // ── Subscription ─────────────────────────────────────────────────────────────
 
 type SubscriptionRow struct {
-	ID            string      `json:"id"`
-	UserID        string      `json:"user_id"`
-	SourceType    string      `json:"source_type"`
-	FeedURL       string      `json:"feed_url"`
-	LastFetchedAt interface{} `json:"last_fetched_at"`
-	Enabled       bool        `json:"enabled"`
+	ID            string     `json:"id"`
+	UserID        string     `json:"user_id"`
+	SourceType    string     `json:"source_type"`
+	FeedURL       string     `json:"feed_url"`
+	Title         string     `json:"title"`
+	Category      string     `json:"category"`
+	LastFetchedAt *time.Time `json:"last_fetched_at"`
+	LastError     string     `json:"last_error"`
+	LastErrorAt   *time.Time `json:"last_error_at"`
+	Enabled       bool       `json:"enabled"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
-func (s *Store) ListRSSSubscriptions(ctx context.Context) ([]SubscriptionRow, error) {
+func (s *Store) ListRSSSubscriptions(ctx context.Context, userID string) ([]SubscriptionRow, error) {
 	rows, err := s.db.Query(ctx, `
-		SELECT id, user_id, source_type, config->>'feed_url', last_fetched_at, enabled
-		FROM subscriptions WHERE source_type = 'rss' AND enabled = true`)
+		SELECT id, user_id, source_type,
+		       COALESCE(config->>'feed_url', ''),
+		       COALESCE(config->>'title', ''),
+		       COALESCE(config->>'category', ''),
+		       last_fetched_at,
+		       COALESCE(config->>'last_error', ''),
+		       NULLIF(config->>'last_error_at', '')::timestamptz,
+		       enabled,
+		       created_at
+		FROM subscriptions
+		WHERE source_type = 'rss' AND user_id = $1
+		ORDER BY enabled DESC, COALESCE(config->>'category', '') ASC, created_at DESC`, userID)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 	var subs []SubscriptionRow
 	for rows.Next() {
-		var sub SubscriptionRow
-		if err := rows.Scan(&sub.ID, &sub.UserID, &sub.SourceType,
-			&sub.FeedURL, &sub.LastFetchedAt, &sub.Enabled); err != nil {
+		sub, err := scanSubscription(rows)
+		if err != nil {
 			return nil, err
 		}
 		subs = append(subs, sub)
 	}
+	if subs == nil {
+		subs = []SubscriptionRow{}
+	}
 	return subs, nil
+}
+
+func (s *Store) ListActiveRSSSubscriptions(ctx context.Context) ([]SubscriptionRow, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, user_id, source_type,
+		       COALESCE(config->>'feed_url', ''),
+		       COALESCE(config->>'title', ''),
+		       COALESCE(config->>'category', ''),
+		       last_fetched_at,
+		       COALESCE(config->>'last_error', ''),
+		       NULLIF(config->>'last_error_at', '')::timestamptz,
+		       enabled,
+		       created_at
+		FROM subscriptions
+		WHERE source_type = 'rss' AND enabled = true
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var subs []SubscriptionRow
+	for rows.Next() {
+		sub, err := scanSubscription(rows)
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	if subs == nil {
+		subs = []SubscriptionRow{}
+	}
+	return subs, nil
+}
+
+func (s *Store) GetRSSSubscription(ctx context.Context, userID, id string) (*SubscriptionRow, error) {
+	sub, err := scanSubscription(s.db.QueryRow(ctx, `
+		SELECT id, user_id, source_type,
+		       COALESCE(config->>'feed_url', ''),
+		       COALESCE(config->>'title', ''),
+		       COALESCE(config->>'category', ''),
+		       last_fetched_at,
+		       COALESCE(config->>'last_error', ''),
+		       NULLIF(config->>'last_error_at', '')::timestamptz,
+		       enabled,
+		       created_at
+		FROM subscriptions
+		WHERE source_type = 'rss' AND user_id = $1 AND id = $2`, userID, id))
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
 }
 
 func (s *Store) UpdateLastFetched(ctx context.Context, subID string) error {
 	_, err := s.db.Exec(ctx,
-		`UPDATE subscriptions SET last_fetched_at = NOW() WHERE id = $1`, subID)
+		`UPDATE subscriptions
+		 SET last_fetched_at = NOW(),
+		     config = config - 'last_error' - 'last_error_at'
+		 WHERE id = $1`, subID)
 	return err
 }
 
-func (s *Store) AddRSSSubscription(ctx context.Context, userID, feedURL string) (string, error) {
+func (s *Store) RecordRSSFetchFailure(ctx context.Context, subID string, fetchErr error) error {
+	msg := ""
+	if fetchErr != nil {
+		msg = fetchErr.Error()
+	}
+	_, err := s.db.Exec(ctx, `
+		UPDATE subscriptions
+		SET config = jsonb_set(
+		              jsonb_set(config, '{last_error}', to_jsonb($2::text), true),
+		              '{last_error_at}', to_jsonb(NOW()::text), true
+		            )
+		WHERE id = $1`, subID, truncateText(msg, 420))
+	return err
+}
+
+func (s *Store) AddRSSSubscription(ctx context.Context, userID, feedURL, title, category string) (string, error) {
+	if err := s.ensureUser(ctx, userID); err != nil {
+		return "", err
+	}
+	if existingID, err := s.findRSSSubscriptionID(ctx, userID, feedURL); err != nil {
+		return "", err
+	} else if existingID != "" {
+		_, err := s.db.Exec(ctx, `
+			UPDATE subscriptions
+			SET enabled = true,
+			    config = jsonb_set(
+			        jsonb_set(config, '{title}', to_jsonb($3::text), true),
+			        '{category}', to_jsonb($4::text), true
+			    )
+			WHERE id = $1 AND user_id = $2`,
+			existingID, userID, strings.TrimSpace(title), strings.TrimSpace(category))
+		return existingID, err
+	}
+
 	id := fmt.Sprintf("sub-%d", time.Now().UnixMilli())
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO subscriptions (id, user_id, source_type, config, enabled)
-		VALUES ($1, $2, 'rss', jsonb_build_object('feed_url', $3::text), true)
+		VALUES ($1, $2, 'rss',
+		        jsonb_build_object(
+		          'feed_url', $3::text,
+		          'title', $4::text,
+		          'category', $5::text
+		        ), true)
 		ON CONFLICT DO NOTHING`,
-		id, userID, feedURL)
+		id, userID, feedURL, strings.TrimSpace(title), strings.TrimSpace(category))
 	return id, err
+}
+
+func (s *Store) UpdateRSSSubscription(ctx context.Context, userID, id, feedURL, title, category string, enabled bool) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE subscriptions
+		SET enabled = $6,
+		    config = jsonb_set(
+		        jsonb_set(
+		          jsonb_set(config, '{feed_url}', to_jsonb($3::text), true),
+		          '{title}', to_jsonb($4::text), true
+		        ),
+		        '{category}', to_jsonb($5::text), true
+		    )
+		WHERE id = $1 AND user_id = $2 AND source_type = 'rss'`,
+		id, userID, feedURL, strings.TrimSpace(title), strings.TrimSpace(category), enabled)
+	return err
+}
+
+func (s *Store) DeleteRSSSubscription(ctx context.Context, userID, id string) error {
+	_, err := s.db.Exec(ctx,
+		`DELETE FROM subscriptions WHERE id = $1 AND user_id = $2 AND source_type = 'rss'`,
+		id, userID)
+	return err
+}
+
+func (s *Store) findRSSSubscriptionID(ctx context.Context, userID, feedURL string) (string, error) {
+	var id string
+	err := s.db.QueryRow(ctx, `
+		SELECT id FROM subscriptions
+		WHERE user_id = $1 AND source_type = 'rss' AND config->>'feed_url' = $2
+		LIMIT 1`, userID, feedURL).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Store) ensureUser(ctx context.Context, userID string) error {
+	_, err := s.db.Exec(ctx, `
+		INSERT INTO users (id)
+		VALUES ($1)
+		ON CONFLICT (id) DO NOTHING`, userID)
+	return err
+}
+
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+func scanSubscription(row scanner) (SubscriptionRow, error) {
+	var sub SubscriptionRow
+	var lastFetched pgtype.Timestamptz
+	var lastErrorAt pgtype.Timestamptz
+	err := row.Scan(&sub.ID, &sub.UserID, &sub.SourceType,
+		&sub.FeedURL, &sub.Title, &sub.Category,
+		&lastFetched, &sub.LastError, &lastErrorAt,
+		&sub.Enabled, &sub.CreatedAt)
+	if err != nil {
+		return sub, err
+	}
+	if lastFetched.Valid {
+		t := lastFetched.Time
+		sub.LastFetchedAt = &t
+	}
+	if lastErrorAt.Valid {
+		t := lastErrorAt.Time
+		sub.LastErrorAt = &t
+	}
+	return sub, nil
+}
+
+func truncateText(s string, maxRunes int) string {
+	r := []rune(s)
+	if len(r) <= maxRunes {
+		return s
+	}
+	return string(r[:maxRunes])
 }
 
 // Verify Store satisfies pipeline.Store at compile time.
