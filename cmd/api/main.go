@@ -392,6 +392,7 @@ type settingsRuntime struct {
 	ASRConfigured      bool `json:"asr_configured"`
 	TelegramConfigured bool `json:"telegram_configured"`
 	YTDLPConfigured    bool `json:"yt_dlp_configured"`
+	YTDLPCookiesSet    bool `json:"yt_dlp_cookies_set"`
 	FFMPEGConfigured   bool `json:"ffmpeg_configured"`
 }
 
@@ -467,6 +468,7 @@ func runtimeSettings() settingsRuntime {
 		ASRConfigured:      getenv("ASR_API_KEY", os.Getenv("LLM_API_KEY")) != "",
 		TelegramConfigured: os.Getenv("TELEGRAM_TOKEN") != "",
 		YTDLPConfigured:    ytDLPErr == nil,
+		YTDLPCookiesSet:    os.Getenv("YTDLP_COOKIES_FILE") != "",
 		FFMPEGConfigured:   ffmpegErr == nil,
 	}
 }

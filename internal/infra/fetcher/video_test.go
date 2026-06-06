@@ -58,14 +58,13 @@ func TestComposeVideoContentIncludesMetadata(t *testing.T) {
 func TestBaseYTDLPArgsUseBrowserHeaders(t *testing.T) {
 	f := &VideoFetcher{
 		userAgent:      defaultYTDLPUserAgent,
-		referer:        defaultYTDLPReferer,
 		acceptLanguage: defaultAcceptLanguage,
 	}
-	got := strings.Join(f.baseYTDLPArgs(), "\n")
+	got := strings.Join(f.baseYTDLPArgs("https://www.bilibili.com/video/BV1xx411c7mD/"), "\n")
 	for _, want := range []string{
 		"--no-warnings",
 		"--user-agent\n" + defaultYTDLPUserAgent,
-		"--referer\n" + defaultYTDLPReferer,
+		"--referer\n" + defaultBilibiliReferer,
 		"--add-header\nAccept-Language:" + defaultAcceptLanguage,
 	} {
 		if !strings.Contains(got, want) {
@@ -76,3 +75,45 @@ func TestBaseYTDLPArgsUseBrowserHeaders(t *testing.T) {
 		t.Fatalf("deprecated --no-call-home should not be used: %q", got)
 	}
 }
+
+func TestBaseYTDLPArgsUseDouyinReferer(t *testing.T) {
+	f := &VideoFetcher{
+		userAgent:      defaultYTDLPUserAgent,
+		acceptLanguage: defaultAcceptLanguage,
+	}
+	got := strings.Join(f.baseYTDLPArgs("https://v.douyin.com/iAbCdEf/"), "\n")
+	if !strings.Contains(got, "--referer\n"+defaultDouyinReferer) {
+		t.Fatalf("missing douyin referer in args: %q", got)
+	}
+	if strings.Contains(got, defaultBilibiliReferer) {
+		t.Fatalf("bilibili referer should not be used for douyin: %q", got)
+	}
+}
+
+func TestBaseYTDLPArgsAllowRefererOverride(t *testing.T) {
+	f := &VideoFetcher{
+		userAgent:      defaultYTDLPUserAgent,
+		referer:        "https://example.com/",
+		acceptLanguage: defaultAcceptLanguage,
+	}
+	got := strings.Join(f.baseYTDLPArgs("https://v.douyin.com/iAbCdEf/"), "\n")
+	if !strings.Contains(got, "--referer\nhttps://example.com/") {
+		t.Fatalf("missing override referer in args: %q", got)
+	}
+}
+
+func TestNormalizeYTDLPErrorExplainsDouyinCookies(t *testing.T) {
+	err := normalizeYTDLPError(
+		"https://www.douyin.com/video/7646064198796108537",
+		assertErr("yt-dlp: ERROR: [Douyin] 7646064198796108537: Fresh cookies (not necessarily logged in) are needed"),
+	)
+	got := err.Error()
+	if !strings.Contains(got, "抖音当前要求 fresh cookies") ||
+		!strings.Contains(got, "YTDLP_COOKIES_FILE") {
+		t.Fatalf("unexpected normalized error: %q", got)
+	}
+}
+
+type assertErr string
+
+func (e assertErr) Error() string { return string(e) }

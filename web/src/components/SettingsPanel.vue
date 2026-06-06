@@ -281,6 +281,7 @@ const runtimeItems = computed(() => {
     { label: 'ASR', detail: '视频转写', configured: !!runtime?.asr_configured, icon: Mic },
     { label: 'Telegram', detail: '消息推送', configured: !!runtime?.telegram_configured, icon: MessageCircle },
     { label: 'yt-dlp', detail: '视频获取', configured: !!runtime?.yt_dlp_configured, icon: Terminal },
+    { label: '视频 Cookies', detail: '抖音授权', configured: !!runtime?.yt_dlp_cookies_set, icon: KeyRound },
     { label: 'ffmpeg', detail: '音频处理', configured: !!runtime?.ffmpeg_configured, icon: Terminal },
   ]
 })
