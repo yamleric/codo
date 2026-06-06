@@ -31,9 +31,10 @@ func main() {
 	st := store.New(pool)
 
 	llmClient := llm.NewClient(llm.Config{
-		BaseURL: getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
-		APIKey:  getenv("LLM_API_KEY", ""),
-		Model:   getenv("LLM_MODEL", "gpt-4o-mini"),
+		BaseURL:     getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
+		APIKey:      getenv("LLM_API_KEY", ""),
+		Model:       getenv("LLM_MODEL", "gpt-4o-mini"),
+		Preferences: st,
 	})
 
 	tg, err := notify.NewTelegram()
