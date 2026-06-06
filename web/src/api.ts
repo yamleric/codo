@@ -14,6 +14,15 @@ export const api = {
   getSubscriptions: () =>
     axios.get<Subscription[]>('/api/subscriptions').then(r => r.data),
 
-  addSubscription: (feedUrl: string) =>
-    axios.post<{ id: string }>('/api/subscriptions', { feed_url: feedUrl }).then(r => r.data),
+  addSubscription: (payload: { feed_url: string; title?: string; category?: string }) =>
+    axios.post<{ id: string }>('/api/subscriptions', payload).then(r => r.data),
+
+  updateSubscription: (id: string, payload: Partial<Pick<Subscription, 'feed_url' | 'title' | 'category' | 'enabled'>>) =>
+    axios.patch(`/api/subscriptions/${id}`, payload),
+
+  deleteSubscription: (id: string) =>
+    axios.delete(`/api/subscriptions/${id}`),
+
+  refreshSubscription: (id: string) =>
+    axios.post<{ items: number }>(`/api/subscriptions/${id}/refresh`).then(r => r.data),
 }

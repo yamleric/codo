@@ -23,6 +23,11 @@ export interface Subscription {
   user_id: string
   source_type: string
   feed_url: string
+  title: string
+  category: string
   last_fetched_at: string | null
+  last_error: string
+  last_error_at: string | null
   enabled: boolean
+  created_at: string
 }

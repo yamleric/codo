@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -18,6 +19,7 @@ import (
 	"github.com/codo/codo/internal/infra/fetcher"
 	"github.com/codo/codo/internal/infra/llm"
 	"github.com/codo/codo/internal/infra/notify"
+	"github.com/codo/codo/internal/infra/sources"
 	"github.com/codo/codo/internal/infra/store"
 	"github.com/gorilla/websocket"
 )
@@ -153,17 +155,18 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/subscriptions — list RSS subscriptions
-// POST /api/subscriptions — add RSS subscription { feed_url: string }
+// POST /api/subscriptions — add RSS subscription { feed_url, title?, category? }
 func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
 	if r.Method == http.MethodOptions {
 		return
 	}
 	userID := getenv("DEFAULT_USER_ID", "demo-user")
 	switch r.Method {
 	case http.MethodGet:
-		subs, err := s.st.ListRSSSubscriptions(r.Context())
+		subs, err := s.st.ListRSSSubscriptions(r.Context(), userID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -171,14 +174,17 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(subs)
 	case http.MethodPost:
-		var body struct {
-			FeedURL string `json:"feed_url"`
-		}
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.FeedURL) == "" {
+		var body subscriptionPayload
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.FeedURL == nil {
 			http.Error(w, "invalid feed_url", http.StatusBadRequest)
 			return
 		}
-		id, err := s.st.AddRSSSubscription(r.Context(), userID, body.FeedURL)
+		feedURL, err := normalizeFeedURL(*body.FeedURL)
+		if err != nil {
+			http.Error(w, "invalid feed_url", http.StatusBadRequest)
+			return
+		}
+		id, err := s.st.AddRSSSubscription(r.Context(), userID, feedURL, stringValue(body.Title), stringValue(body.Category))
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -188,6 +194,142 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// PATCH /api/subscriptions/:id — update RSS subscription
+// DELETE /api/subscriptions/:id — delete RSS subscription
+// POST /api/subscriptions/:id/refresh — fetch new RSS items now
+func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "PATCH,DELETE,POST,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/subscriptions/"), "/")
+	parts := strings.Split(path, "/")
+	if len(parts) == 0 || parts[0] == "" {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	id := parts[0]
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+
+	if len(parts) == 2 && parts[1] == "refresh" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.refreshSubscription(w, r, userID, id)
+		return
+	}
+	if len(parts) != 1 {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodPatch:
+		existing, err := s.st.GetRSSSubscription(r.Context(), userID, id)
+		if err != nil {
+			http.Error(w, "subscription not found", http.StatusNotFound)
+			return
+		}
+		var body subscriptionPayload
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		feedURL := existing.FeedURL
+		if body.FeedURL != nil {
+			normalized, err := normalizeFeedURL(*body.FeedURL)
+			if err != nil {
+				http.Error(w, "invalid feed_url", http.StatusBadRequest)
+				return
+			}
+			feedURL = normalized
+		}
+		title := existing.Title
+		if body.Title != nil {
+			title = *body.Title
+		}
+		category := existing.Category
+		if body.Category != nil {
+			category = *body.Category
+		}
+		enabled := existing.Enabled
+		if body.Enabled != nil {
+			enabled = *body.Enabled
+		}
+		if err := s.st.UpdateRSSSubscription(r.Context(), userID, id, feedURL, title, category, enabled); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if err := s.st.DeleteRSSSubscription(r.Context(), userID, id); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *server) refreshSubscription(w http.ResponseWriter, r *http.Request, userID, id string) {
+	sub, err := s.st.GetRSSSubscription(r.Context(), userID, id)
+	if err != nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	var since time.Time
+	if sub.LastFetchedAt != nil {
+		since = *sub.LastFetchedAt
+	}
+	items, err := sources.FetchRSS(r.Context(), sub.FeedURL, since, 20)
+	if err != nil {
+		_ = s.st.RecordRSSFetchFailure(r.Context(), sub.ID, err)
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+	for _, item := range items {
+		s.runRSSItem(sub.UserID, item)
+	}
+	_ = s.st.UpdateLastFetched(r.Context(), sub.ID)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]int{"items": len(items)})
+}
+
+func (s *server) runRSSItem(userID string, item sources.RSSItem) {
+	contentType := task.ContentWebPage
+	if normalizedURL, err := ingest.NormalizeURL(item.URL); err == nil {
+		item.URL = normalizedURL
+		contentType = ingest.DetectContentType(normalizedURL)
+	}
+	t := task.New(
+		fmt.Sprintf("rss-%d", time.Now().UnixNano()),
+		userID,
+		task.SourceRSS,
+		contentType,
+		item.URL,
+		"",
+	)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), taskTimeout(contentType))
+		defer cancel()
+		if err := s.router.Run(ctx, t); err != nil {
+			slog.Warn("subscription refresh task failed", "url", item.URL, "err", err)
+		}
+	}()
+}
+
+type subscriptionPayload struct {
+	FeedURL  *string `json:"feed_url"`
+	Title    *string `json:"title"`
+	Category *string `json:"category"`
+	Enabled  *bool   `json:"enabled"`
 }
 
 func main() {
@@ -248,6 +390,7 @@ func main() {
 		srv.retryTask(w, r)
 	})
 	mux.HandleFunc("/api/subscriptions", srv.subscriptions)
+	mux.HandleFunc("/api/subscriptions/", srv.subscriptionByID)
 	mux.HandleFunc("/ws", srv.wsHandler)
 	mux.Handle("/", http.FileServer(http.Dir(getenv("WEB_DIR", "./web/dist"))))
 
@@ -278,4 +421,29 @@ func taskTimeout(contentType task.ContentType) time.Duration {
 		return 30 * time.Minute
 	}
 	return 5 * time.Minute
+}
+
+func normalizeFeedURL(input string) (string, error) {
+	raw := strings.TrimSpace(input)
+	if raw == "" {
+		return "", fmt.Errorf("empty feed url")
+	}
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return "", err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", fmt.Errorf("unsupported feed url scheme")
+	}
+	if parsed.Hostname() == "" {
+		return "", fmt.Errorf("missing feed url host")
+	}
+	return parsed.String(), nil
+}
+
+func stringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
 }

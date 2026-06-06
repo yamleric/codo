@@ -61,3 +61,7 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     enabled         BOOLEAN NOT NULL DEFAULT TRUE,
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+
+INSERT INTO users (id)
+VALUES ('demo-user')
+ON CONFLICT (id) DO NOTHING;

@@ -65,7 +65,7 @@ func main() {
 }
 
 func runRSS(ctx context.Context, st *store.Store, router *pipeline.Router) {
-	subs, err := st.ListRSSSubscriptions(ctx)
+	subs, err := st.ListActiveRSSSubscriptions(ctx)
 	if err != nil {
 		slog.Error("list rss subs", "err", err)
 		return
@@ -75,13 +75,12 @@ func runRSS(ctx context.Context, st *store.Store, router *pipeline.Router) {
 	for _, sub := range subs {
 		var since time.Time
 		if sub.LastFetchedAt != nil {
-			if t, ok := sub.LastFetchedAt.(time.Time); ok {
-				since = t
-			}
+			since = *sub.LastFetchedAt
 		}
 
 		items, err := sources.FetchRSS(ctx, sub.FeedURL, since, 20)
 		if err != nil {
+			_ = st.RecordRSSFetchFailure(ctx, sub.ID, err)
 			slog.Warn("rss fetch failed", "url", sub.FeedURL, "err", err)
 			continue
 		}
