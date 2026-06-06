@@ -10,6 +10,7 @@ type SourceType string
 
 const (
 	SourceManual    SourceType = "manual"
+	SourceBookmark  SourceType = "bookmark"
 	SourceRSS       SourceType = "rss"
 	SourceWechatMP  SourceType = "wechat_mp"
 	SourceLinuxDo   SourceType = "linux_do"

@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Task, Subscription, UserSettings, UserSettingsPatch } from './types'
+import type { Task, Subscription, Bookmark, BookmarkImportResult, UserSettings, UserSettingsPatch } from './types'
 
 export const api = {
   submitUrl: (url: string) =>
@@ -25,6 +25,21 @@ export const api = {
 
   refreshSubscription: (id: string) =>
     axios.post<{ items: number }>(`/api/subscriptions/${id}/refresh`).then(r => r.data),
+
+  getBookmarks: () =>
+    axios.get<Bookmark[]>('/api/bookmarks').then(r => r.data),
+
+  importBookmarks: (payload: { url?: string; text?: string; folder?: string; bookmarks?: Array<{ url: string; title?: string; folder?: string; note?: string }> }) =>
+    axios.post<BookmarkImportResult>('/api/bookmarks', payload).then(r => r.data),
+
+  updateBookmark: (id: string, payload: Partial<Pick<Bookmark, 'title' | 'folder' | 'note'>>) =>
+    axios.patch(`/api/bookmarks/${id}`, payload),
+
+  deleteBookmark: (id: string) =>
+    axios.delete(`/api/bookmarks/${id}`),
+
+  syncBookmarks: (ids?: string[]) =>
+    axios.post<{ queued: number; task_ids: string[] }>('/api/bookmarks/sync', { ids: ids ?? [] }).then(r => r.data),
 
   getSettings: () =>
     axios.get<UserSettings>('/api/settings').then(r => r.data),

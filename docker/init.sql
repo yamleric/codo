@@ -57,6 +57,26 @@ CREATE INDEX IF NOT EXISTS articles_embedding_idx ON articles USING hnsw (embedd
 CREATE INDEX IF NOT EXISTS tasks_category_user_idx ON tasks(user_id, category);
 CREATE INDEX IF NOT EXISTS articles_category_user_idx ON articles(user_id, category);
 
+CREATE TABLE IF NOT EXISTS bookmarks (
+    id             TEXT PRIMARY KEY,
+    user_id        TEXT NOT NULL REFERENCES users(id),
+    url            TEXT NOT NULL,
+    url_hash       TEXT NOT NULL,
+    title          TEXT NOT NULL DEFAULT '',
+    folder         TEXT NOT NULL DEFAULT '',
+    note           TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'pending',
+    last_task_id   TEXT,
+    last_synced_at TIMESTAMPTZ,
+    last_error     TEXT NOT NULL DEFAULT '',
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_url_hash_user ON bookmarks(user_id, url_hash);
+CREATE INDEX IF NOT EXISTS bookmarks_user_status_idx ON bookmarks(user_id, status, created_at DESC);
+CREATE INDEX IF NOT EXISTS bookmarks_user_folder_idx ON bookmarks(user_id, folder);
+
 CREATE TABLE IF NOT EXISTS subscriptions (
     id              TEXT PRIMARY KEY,
     user_id         TEXT NOT NULL REFERENCES users(id),

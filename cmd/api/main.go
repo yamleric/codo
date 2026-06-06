@@ -369,11 +369,161 @@ func (s *server) runRSSItem(userID string, item sources.RSSItem) {
 	}()
 }
 
+// GET /api/bookmarks — list bookmarks
+// POST /api/bookmarks — import bookmark URLs
+func (s *server) bookmarks(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	switch r.Method {
+	case http.MethodGet:
+		bookmarks, err := s.st.ListBookmarks(r.Context(), userID)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(bookmarks)
+	case http.MethodPost:
+		var body bookmarkImportPayload
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		inputs := bookmarkInputsFromPayload(body)
+		if len(inputs) == 0 {
+			http.Error(w, "missing bookmark url", http.StatusBadRequest)
+			return
+		}
+		result, err := s.st.AddBookmarks(r.Context(), userID, inputs)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// PATCH /api/bookmarks/:id — update bookmark metadata
+// DELETE /api/bookmarks/:id — delete bookmark
+// POST /api/bookmarks/sync — sync pending/selected bookmarks
+func (s *server) bookmarkByID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "PATCH,DELETE,POST,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/bookmarks/"), "/")
+	if path == "sync" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.syncBookmarks(w, r, userID)
+		return
+	}
+	if path == "" || strings.Contains(path, "/") {
+		http.Error(w, "bookmark not found", http.StatusNotFound)
+		return
+	}
+	switch r.Method {
+	case http.MethodPatch:
+		var body bookmarkPayload
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		if err := s.st.UpdateBookmark(r.Context(), userID, path, store.BookmarkInput{
+			Title:  stringValue(body.Title),
+			Folder: stringValue(body.Folder),
+			Note:   stringValue(body.Note),
+		}); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	case http.MethodDelete:
+		if err := s.st.DeleteBookmark(r.Context(), userID, path); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *server) syncBookmarks(w http.ResponseWriter, r *http.Request, userID string) {
+	var body bookmarkSyncPayload
+	if r.Body != nil {
+		_ = json.NewDecoder(r.Body).Decode(&body)
+	}
+	bookmarks, err := s.st.ListBookmarksForSync(r.Context(), userID, body.IDs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	taskIDs := make([]string, 0, len(bookmarks))
+	for _, bookmark := range bookmarks {
+		taskID := fmt.Sprintf("bookmark-%d", time.Now().UnixNano())
+		if err := s.st.MarkBookmarkSyncing(r.Context(), userID, bookmark.ID, taskID); err != nil {
+			slog.Warn("bookmark sync mark failed", "id", bookmark.ID, "err", err)
+			continue
+		}
+		taskIDs = append(taskIDs, taskID)
+		s.runBookmark(userID, bookmark, taskID)
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(map[string]any{"queued": len(taskIDs), "task_ids": taskIDs})
+}
+
+func (s *server) runBookmark(userID string, bookmark store.BookmarkRow, taskID string) {
+	contentType := ingest.DetectContentType(bookmark.URL)
+	t := task.New(taskID, userID, task.SourceBookmark, contentType, bookmark.URL, "")
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), taskTimeout(contentType))
+		defer cancel()
+		if err := s.router.Run(ctx, t); err != nil {
+			_ = s.st.MarkBookmarkFailed(context.Background(), userID, bookmark.ID, err)
+			slog.Warn("bookmark sync task failed", "id", bookmark.ID, "err", err)
+			return
+		}
+		_ = s.st.MarkBookmarkSynced(context.Background(), userID, bookmark.ID)
+	}()
+}
+
 type subscriptionPayload struct {
 	FeedURL  *string `json:"feed_url"`
 	Title    *string `json:"title"`
 	Category *string `json:"category"`
 	Enabled  *bool   `json:"enabled"`
+}
+
+type bookmarkPayload struct {
+	URL    *string `json:"url"`
+	Title  *string `json:"title"`
+	Folder *string `json:"folder"`
+	Note   *string `json:"note"`
+}
+
+type bookmarkImportPayload struct {
+	URL       string            `json:"url"`
+	Text      string            `json:"text"`
+	Folder    string            `json:"folder"`
+	Bookmarks []bookmarkPayload `json:"bookmarks"`
+}
+
+type bookmarkSyncPayload struct {
+	IDs []string `json:"ids"`
 }
 
 type settingsResponse struct {
@@ -563,6 +713,8 @@ func main() {
 	})
 	mux.HandleFunc("/api/subscriptions", srv.subscriptions)
 	mux.HandleFunc("/api/subscriptions/", srv.subscriptionByID)
+	mux.HandleFunc("/api/bookmarks", srv.bookmarks)
+	mux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
 	mux.HandleFunc("/api/settings", srv.settings)
 	mux.HandleFunc("/ws", srv.wsHandler)
 	mux.Handle("/", http.FileServer(http.Dir(getenv("WEB_DIR", "./web/dist"))))
@@ -612,6 +764,48 @@ func normalizeFeedURL(input string) (string, error) {
 		return "", fmt.Errorf("missing feed url host")
 	}
 	return parsed.String(), nil
+}
+
+func bookmarkInputsFromPayload(body bookmarkImportPayload) []store.BookmarkInput {
+	inputs := make([]store.BookmarkInput, 0, len(body.Bookmarks)+8)
+	fallbackFolder := strings.TrimSpace(body.Folder)
+	if strings.TrimSpace(body.URL) != "" {
+		if normalized, err := ingest.NormalizeURL(body.URL); err == nil {
+			inputs = append(inputs, store.BookmarkInput{URL: normalized, Folder: fallbackFolder})
+		}
+	}
+	for _, rawURL := range ingest.ExtractURLs(body.Text) {
+		inputs = append(inputs, store.BookmarkInput{URL: rawURL, Folder: fallbackFolder})
+	}
+	for _, bookmark := range body.Bookmarks {
+		if bookmark.URL == nil {
+			continue
+		}
+		normalized, err := ingest.NormalizeURL(*bookmark.URL)
+		if err != nil {
+			continue
+		}
+		folder := stringValue(bookmark.Folder)
+		if folder == "" {
+			folder = fallbackFolder
+		}
+		inputs = append(inputs, store.BookmarkInput{
+			URL:    normalized,
+			Title:  stringValue(bookmark.Title),
+			Folder: folder,
+			Note:   stringValue(bookmark.Note),
+		})
+	}
+	out := make([]store.BookmarkInput, 0, len(inputs))
+	seen := make(map[string]struct{}, len(inputs))
+	for _, input := range inputs {
+		if _, ok := seen[input.URL]; ok {
+			continue
+		}
+		seen[input.URL] = struct{}{}
+		out = append(out, input)
+	}
+	return out
 }
 
 func stringValue(value *string) string {

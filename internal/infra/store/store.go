@@ -120,6 +120,265 @@ type StepRow struct {
 	DurationMs int64  `json:"duration_ms"`
 }
 
+// ── Bookmarks ────────────────────────────────────────────────────────────────
+
+type BookmarkRow struct {
+	ID           string     `json:"id"`
+	UserID       string     `json:"user_id"`
+	URL          string     `json:"url"`
+	Title        string     `json:"title"`
+	Folder       string     `json:"folder"`
+	Note         string     `json:"note"`
+	Status       string     `json:"status"`
+	LastTaskID   string     `json:"last_task_id"`
+	LastSyncedAt *time.Time `json:"last_synced_at"`
+	LastError    string     `json:"last_error"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+}
+
+type BookmarkInput struct {
+	URL    string
+	Title  string
+	Folder string
+	Note   string
+}
+
+type BookmarkImportResult struct {
+	Imported  int           `json:"imported"`
+	Updated   int           `json:"updated"`
+	Skipped   int           `json:"skipped"`
+	Bookmarks []BookmarkRow `json:"bookmarks"`
+}
+
+func (s *Store) ListBookmarks(ctx context.Context, userID string) ([]BookmarkRow, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, user_id, url, title, folder, note, status,
+		       COALESCE(last_task_id, ''), last_synced_at, last_error, created_at, updated_at
+		FROM bookmarks
+		WHERE user_id = $1
+		ORDER BY
+		  CASE status WHEN 'pending' THEN 0 WHEN 'failed' THEN 1 WHEN 'syncing' THEN 2 ELSE 3 END,
+		  created_at DESC`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var bookmarks []BookmarkRow
+	for rows.Next() {
+		bookmark, err := scanBookmark(rows)
+		if err != nil {
+			return nil, err
+		}
+		bookmarks = append(bookmarks, bookmark)
+	}
+	if bookmarks == nil {
+		return []BookmarkRow{}, nil
+	}
+	return bookmarks, nil
+}
+
+func (s *Store) AddBookmarks(ctx context.Context, userID string, inputs []BookmarkInput) (BookmarkImportResult, error) {
+	if err := s.ensureUser(ctx, userID); err != nil {
+		return BookmarkImportResult{}, err
+	}
+	result := BookmarkImportResult{Bookmarks: []BookmarkRow{}}
+	for _, input := range inputs {
+		bookmark, imported, updated, err := s.upsertBookmark(ctx, userID, input)
+		if err != nil {
+			return result, err
+		}
+		if bookmark == nil {
+			result.Skipped++
+			continue
+		}
+		if imported {
+			result.Imported++
+		} else if updated {
+			result.Updated++
+		} else {
+			result.Skipped++
+		}
+		result.Bookmarks = append(result.Bookmarks, *bookmark)
+	}
+	return result, nil
+}
+
+func (s *Store) UpdateBookmark(ctx context.Context, userID, id string, input BookmarkInput) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE bookmarks
+		SET title = $3,
+		    folder = $4,
+		    note = $5,
+		    updated_at = NOW()
+		WHERE id = $1 AND user_id = $2`,
+		id, userID, strings.TrimSpace(input.Title), strings.TrimSpace(input.Folder), strings.TrimSpace(input.Note))
+	return err
+}
+
+func (s *Store) DeleteBookmark(ctx context.Context, userID, id string) error {
+	_, err := s.db.Exec(ctx, `DELETE FROM bookmarks WHERE id = $1 AND user_id = $2`, id, userID)
+	return err
+}
+
+func (s *Store) ListBookmarksForSync(ctx context.Context, userID string, ids []string) ([]BookmarkRow, error) {
+	if len(ids) > 0 {
+		rows, err := s.db.Query(ctx, `
+			SELECT id, user_id, url, title, folder, note, status,
+			       COALESCE(last_task_id, ''), last_synced_at, last_error, created_at, updated_at
+			FROM bookmarks
+			WHERE user_id = $1 AND id = ANY($2::text[])
+			ORDER BY created_at ASC`, userID, ids)
+		if err != nil {
+			return nil, err
+		}
+		defer rows.Close()
+		return scanBookmarks(rows)
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT id, user_id, url, title, folder, note, status,
+		       COALESCE(last_task_id, ''), last_synced_at, last_error, created_at, updated_at
+		FROM bookmarks
+		WHERE user_id = $1 AND status IN ('pending', 'failed')
+		ORDER BY created_at ASC
+		LIMIT 50`, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanBookmarks(rows)
+}
+
+func (s *Store) MarkBookmarkSyncing(ctx context.Context, userID, id, taskID string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE bookmarks
+		SET status = 'syncing',
+		    last_task_id = $3,
+		    last_error = '',
+		    updated_at = NOW()
+		WHERE id = $1 AND user_id = $2`,
+		id, userID, taskID)
+	return err
+}
+
+func (s *Store) MarkBookmarkSynced(ctx context.Context, userID, id string) error {
+	_, err := s.db.Exec(ctx, `
+		UPDATE bookmarks
+		SET status = 'synced',
+		    last_synced_at = NOW(),
+		    last_error = '',
+		    updated_at = NOW()
+		WHERE id = $1 AND user_id = $2`,
+		id, userID)
+	return err
+}
+
+func (s *Store) MarkBookmarkFailed(ctx context.Context, userID, id string, syncErr error) error {
+	msg := ""
+	if syncErr != nil {
+		msg = syncErr.Error()
+	}
+	_, err := s.db.Exec(ctx, `
+		UPDATE bookmarks
+		SET status = 'failed',
+		    last_error = $3,
+		    updated_at = NOW()
+		WHERE id = $1 AND user_id = $2`,
+		id, userID, truncateText(msg, 420))
+	return err
+}
+
+func (s *Store) upsertBookmark(ctx context.Context, userID string, input BookmarkInput) (*BookmarkRow, bool, bool, error) {
+	url := strings.TrimSpace(input.URL)
+	if url == "" {
+		return nil, false, false, nil
+	}
+	hash := contentHash(url)
+	existingID, err := s.findBookmarkID(ctx, userID, hash)
+	if err != nil {
+		return nil, false, false, err
+	}
+	if existingID != "" {
+		bookmark, err := scanBookmark(s.db.QueryRow(ctx, `
+			UPDATE bookmarks
+			SET title = CASE WHEN $3 <> '' THEN $3 ELSE title END,
+			    folder = CASE WHEN $4 <> '' THEN $4 ELSE folder END,
+			    note = CASE WHEN $5 <> '' THEN $5 ELSE note END,
+			    status = CASE WHEN status = 'synced' THEN status ELSE 'pending' END,
+			    last_error = '',
+			    updated_at = NOW()
+			WHERE id = $1 AND user_id = $2
+			RETURNING id, user_id, url, title, folder, note, status,
+			          COALESCE(last_task_id, ''), last_synced_at, last_error, created_at, updated_at`,
+			existingID, userID, strings.TrimSpace(input.Title), strings.TrimSpace(input.Folder), strings.TrimSpace(input.Note)))
+		if err != nil {
+			return nil, false, false, err
+		}
+		return &bookmark, false, true, nil
+	}
+	id := fmt.Sprintf("bookmark-%d", time.Now().UnixNano())
+	bookmark, err := scanBookmark(s.db.QueryRow(ctx, `
+		INSERT INTO bookmarks (id, user_id, url, url_hash, title, folder, note, status)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, 'pending')
+		RETURNING id, user_id, url, title, folder, note, status,
+		          COALESCE(last_task_id, ''), last_synced_at, last_error, created_at, updated_at`,
+		id, userID, url, hash, strings.TrimSpace(input.Title), strings.TrimSpace(input.Folder), strings.TrimSpace(input.Note)))
+	if err != nil {
+		return nil, false, false, err
+	}
+	return &bookmark, true, false, nil
+}
+
+func (s *Store) findBookmarkID(ctx context.Context, userID, hash string) (string, error) {
+	var id string
+	err := s.db.QueryRow(ctx, `
+		SELECT id FROM bookmarks
+		WHERE user_id = $1 AND url_hash = $2
+		LIMIT 1`, userID, hash).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func scanBookmarks(rows pgx.Rows) ([]BookmarkRow, error) {
+	var bookmarks []BookmarkRow
+	for rows.Next() {
+		bookmark, err := scanBookmark(rows)
+		if err != nil {
+			return nil, err
+		}
+		bookmarks = append(bookmarks, bookmark)
+	}
+	if bookmarks == nil {
+		return []BookmarkRow{}, nil
+	}
+	return bookmarks, nil
+}
+
+func scanBookmark(row scanner) (BookmarkRow, error) {
+	var bookmark BookmarkRow
+	var lastSynced pgtype.Timestamptz
+	err := row.Scan(
+		&bookmark.ID, &bookmark.UserID, &bookmark.URL, &bookmark.Title, &bookmark.Folder, &bookmark.Note,
+		&bookmark.Status, &bookmark.LastTaskID, &lastSynced, &bookmark.LastError, &bookmark.CreatedAt, &bookmark.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return bookmark, err
+		}
+		return bookmark, err
+	}
+	if lastSynced.Valid {
+		t := lastSynced.Time
+		bookmark.LastSyncedAt = &t
+	}
+	return bookmark, nil
+}
+
 func (s *Store) ListTasks(ctx context.Context, userID string, limit int) ([]TaskRow, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, source, content_type, url, status, filter_decision,
