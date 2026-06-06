@@ -11,16 +11,27 @@
     <div class="task-toolbar">
       <label class="search-field">
         <Search :size="15" />
-        <input v-model="query" type="search" placeholder="搜索链接或摘要" />
+        <input v-model="query" type="search" placeholder="搜索链接、摘要或标签" />
       </label>
-      <div class="filter-tabs" aria-label="任务状态筛选">
-        <button
-          v-for="item in filters"
-          :key="item.id"
-          type="button"
-          :class="{ active: activeFilter === item.id }"
-          @click="activeFilter = item.id"
-        >{{ item.label }}</button>
+      <div class="task-filters">
+        <div class="filter-tabs" aria-label="任务状态筛选">
+          <button
+            v-for="item in filters"
+            :key="item.id"
+            type="button"
+            :class="{ active: activeFilter === item.id }"
+            @click="activeFilter = item.id"
+          >{{ item.label }}</button>
+        </div>
+        <div v-if="categoryFilters.length > 1" class="filter-tabs category-tabs" aria-label="任务分类筛选">
+          <button
+            v-for="item in categoryFilters"
+            :key="item.id"
+            type="button"
+            :class="{ active: activeCategory === item.id }"
+            @click="activeCategory = item.id"
+          >{{ item.label }}</button>
+        </div>
       </div>
     </div>
 
@@ -40,8 +51,14 @@
               <span>{{ sourceLabel(task.source) }}</span>
               <span>{{ timeAgo(task.created_at) }}</span>
             </div>
-            <strong>{{ taskName(task.url) }}</strong>
+            <div class="task-title-line">
+              <strong>{{ taskName(task.url) }}</strong>
+              <span v-if="task.category" class="task-category">{{ task.category }}</span>
+            </div>
             <span class="task-url">{{ task.url }}</span>
+            <div v-if="task.tags?.length" class="task-tags">
+              <span v-for="tag in task.tags.slice(0, 5)" :key="tag">{{ tag }}</span>
+            </div>
             <p v-if="task.summary">{{ task.summary }}</p>
             <p v-else-if="task.error" class="task-error">{{ task.error }}</p>
           </div>
@@ -99,6 +116,7 @@ import { api } from '../api'
 import type { Task } from '../types'
 
 type FilterID = 'all' | 'running' | 'done' | 'failed'
+type CategoryFilterID = 'all' | string
 
 const props = withDefaults(defineProps<{ tasks: Task[]; title?: string; compact?: boolean }>(), {
   title: '任务',
@@ -109,6 +127,7 @@ const emit = defineEmits<{ updated: [] }>()
 const expanded = ref(new Set<string>())
 const query = ref('')
 const activeFilter = ref<FilterID>('all')
+const activeCategory = ref<CategoryFilterID>('all')
 const showAll = ref(false)
 const compactLimit = 6
 
@@ -119,11 +138,23 @@ const filters: { id: FilterID; label: string }[] = [
   { id: 'failed', label: '失败' },
 ]
 
+const categoryFilters = computed(() => {
+  const categories = Array.from(
+    new Set(props.tasks.map(task => task.category).filter(Boolean)),
+  ).sort((a, b) => a.localeCompare(b, 'zh-CN'))
+  return [
+    { id: 'all', label: '全部分类' },
+    ...categories.map(category => ({ id: category, label: category })),
+  ]
+})
+
 const filteredTasks = computed(() => {
   const term = query.value.trim().toLowerCase()
   return props.tasks.filter((task) => {
-    const matchesTerm = !term || `${task.url} ${task.summary}`.toLowerCase().includes(term)
+    const haystack = `${task.url} ${task.summary} ${task.category} ${(task.tags || []).join(' ')}`.toLowerCase()
+    const matchesTerm = !term || haystack.includes(term)
     if (!matchesTerm) return false
+    if (activeCategory.value !== 'all' && task.category !== activeCategory.value) return false
     if (activeFilter.value === 'running') return !['done', 'failed', 'discarded'].includes(task.status)
     if (activeFilter.value === 'done') return task.status === 'done' || task.status === 'discarded'
     if (activeFilter.value === 'failed') return task.status === 'failed'

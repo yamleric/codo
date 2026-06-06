@@ -32,19 +32,21 @@ func (s *Store) SaveTaskState(ctx context.Context, t *task.Task) error {
 	}
 	_, err := s.db.Exec(ctx, `
 		INSERT INTO tasks (id, user_id, source, content_type, url, raw_content,
-		                   status, filter_decision, summary, error, created_at, updated_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+		                   status, filter_decision, category, tags, summary, error, created_at, updated_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
 		ON CONFLICT (id) DO UPDATE SET
 			raw_content      = EXCLUDED.raw_content,
 			status          = EXCLUDED.status,
 			filter_decision = EXCLUDED.filter_decision,
+			category        = EXCLUDED.category,
+			tags            = EXCLUDED.tags,
 			summary         = EXCLUDED.summary,
 			error           = EXCLUDED.error,
 			updated_at      = EXCLUDED.updated_at`,
 		t.ID, t.UserID, string(t.Source), string(t.ContentType),
 		t.URL, t.RawContent(),
 		string(t.Status()), string(t.FilterDecision()),
-		t.Summary(), t.Error(),
+		t.Category(), t.Tags(), t.Summary(), t.Error(),
 		t.CreatedAt(), t.UpdatedAt(),
 	)
 	return err
@@ -63,13 +65,15 @@ func (s *Store) AppendStep(ctx context.Context, taskID string, step task.Step) e
 func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 	hash := contentHash(t.URL)
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO articles (id, user_id, task_id, url, url_hash, source, content, summary, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,NOW())
+		INSERT INTO articles (id, user_id, task_id, url, url_hash, source, content, summary, category, tags, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
 		ON CONFLICT (user_id, url_hash) WHERE url_hash IS NOT NULL DO UPDATE SET
 			summary    = EXCLUDED.summary,
-			content    = EXCLUDED.content`,
+			content    = EXCLUDED.content,
+			category   = EXCLUDED.category,
+			tags       = EXCLUDED.tags`,
 		t.ID, t.UserID, t.ID, t.URL, hash,
-		string(t.Source), t.RawContent(), t.Summary(),
+		string(t.Source), t.RawContent(), t.Summary(), t.Category(), t.Tags(),
 	)
 	return err
 }
@@ -101,6 +105,8 @@ type TaskRow struct {
 	URL            string    `json:"url"`
 	Status         string    `json:"status"`
 	FilterDecision string    `json:"filter_decision"`
+	Category       string    `json:"category"`
+	Tags           []string  `json:"tags"`
 	Summary        string    `json:"summary"`
 	Error          string    `json:"error"`
 	CreatedAt      string    `json:"created_at"`
@@ -117,6 +123,7 @@ type StepRow struct {
 func (s *Store) ListTasks(ctx context.Context, userID string, limit int) ([]TaskRow, error) {
 	rows, err := s.db.Query(ctx, `
 		SELECT id, source, content_type, url, status, filter_decision,
+		       COALESCE(category, ''), COALESCE(tags, '{}'::text[]),
 		       summary, error, created_at
 		FROM tasks WHERE user_id = $1
 		ORDER BY created_at DESC LIMIT $2`, userID, limit)
@@ -130,8 +137,11 @@ func (s *Store) ListTasks(ctx context.Context, userID string, limit int) ([]Task
 		var t TaskRow
 		var createdAt interface{}
 		if err := rows.Scan(&t.ID, &t.Source, &t.ContentType, &t.URL,
-			&t.Status, &t.FilterDecision, &t.Summary, &t.Error, &createdAt); err != nil {
+			&t.Status, &t.FilterDecision, &t.Category, &t.Tags, &t.Summary, &t.Error, &createdAt); err != nil {
 			return nil, err
+		}
+		if t.Tags == nil {
+			t.Tags = []string{}
 		}
 		t.CreatedAt = fmt.Sprintf("%v", createdAt)
 		t.Steps, _ = s.listSteps(ctx, t.ID)
@@ -148,12 +158,16 @@ func (s *Store) GetTask(ctx context.Context, id string) (*TaskRow, error) {
 	var createdAt interface{}
 	err := s.db.QueryRow(ctx, `
 		SELECT id, source, content_type, url, status, filter_decision,
+		       COALESCE(category, ''), COALESCE(tags, '{}'::text[]),
 		       summary, error, created_at
 		FROM tasks WHERE id = $1`, id).Scan(
 		&t.ID, &t.Source, &t.ContentType, &t.URL,
-		&t.Status, &t.FilterDecision, &t.Summary, &t.Error, &createdAt)
+		&t.Status, &t.FilterDecision, &t.Category, &t.Tags, &t.Summary, &t.Error, &createdAt)
 	if err != nil {
 		return nil, err
+	}
+	if t.Tags == nil {
+		t.Tags = []string{}
 	}
 	t.CreatedAt = fmt.Sprintf("%v", createdAt)
 	return &t, nil

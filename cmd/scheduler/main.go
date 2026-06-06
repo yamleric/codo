@@ -28,6 +28,10 @@ func main() {
 		slog.Error("db connect", "err", err)
 		os.Exit(1)
 	}
+	if err := db.Migrate(ctx, pool); err != nil {
+		slog.Error("db migrate", "err", err)
+		os.Exit(1)
+	}
 
 	st := store.New(pool)
 	llmClient := llm.NewClient(llm.Config{

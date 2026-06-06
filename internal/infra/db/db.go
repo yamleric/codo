@@ -22,3 +22,19 @@ func Connect(ctx context.Context) (*pgxpool.Pool, error) {
 	}
 	return pool, nil
 }
+
+func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	statements := []string{
+		`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
+		`ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS tasks_category_user_idx ON tasks(user_id, category)`,
+		`CREATE INDEX IF NOT EXISTS articles_category_user_idx ON articles(user_id, category)`,
+	}
+	for _, statement := range statements {
+		if _, err := pool.Exec(ctx, statement); err != nil {
+			return fmt.Errorf("db migrate: %w", err)
+		}
+	}
+	return nil
+}

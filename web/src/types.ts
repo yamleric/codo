@@ -12,6 +12,8 @@ export interface Task {
   url: string
   status: string
   filter_decision: string
+  category: string
+  tags: string[]
   summary: string
   error: string
   created_at: string
