@@ -40,7 +40,8 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
   <tr><td>网页抓取</td><td><a href="https://codeberg.org/readeck/go-readability">readeck/go-readability</a></td><td>网页正文提取</td></tr>
   <tr><td>安全清洗</td><td><a href="https://github.com/microcosm-cc/bluemonday">microcosm-cc/bluemonday</a></td><td>HTML 安全清洗，入库 / 展示前 sanitize</td></tr>
   <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取</td></tr>
-  <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>B站 / 抖音公开视频元数据、字幕和音频下载</td></tr>
+  <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>B站 / 抖音公开视频元数据、字幕和音频下载；cookies 文件和浏览器 cookies 来源配置</td></tr>
+  <tr><td>视频授权态参考</td><td><a href="https://github.com/mikf/gallery-dl">gallery-dl/gallery-dl</a></td><td>参考其显式 cookies / browser cookies 配置模式，不作为运行依赖</td></tr>
   <tr><td>音频处理</td><td><a href="https://github.com/FFmpeg/FFmpeg">FFmpeg/FFmpeg</a></td><td>视频音频提取、转码和 ASR 切片</td></tr>
   <tr><td>数据存储</td><td><a href="https://github.com/jackc/pgx">jackc/pgx</a></td><td>PostgreSQL 驱动与连接池</td></tr>
   <tr><td>知识库</td><td><a href="https://github.com/pgvector/pgvector">pgvector/pgvector</a></td><td>PostgreSQL 向量字段和向量索引</td></tr>
