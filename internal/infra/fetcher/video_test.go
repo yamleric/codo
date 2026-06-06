@@ -54,3 +54,25 @@ func TestComposeVideoContentIncludesMetadata(t *testing.T) {
 		}
 	}
 }
+
+func TestBaseYTDLPArgsUseBrowserHeaders(t *testing.T) {
+	f := &VideoFetcher{
+		userAgent:      defaultYTDLPUserAgent,
+		referer:        defaultYTDLPReferer,
+		acceptLanguage: defaultAcceptLanguage,
+	}
+	got := strings.Join(f.baseYTDLPArgs(), "\n")
+	for _, want := range []string{
+		"--no-warnings",
+		"--user-agent\n" + defaultYTDLPUserAgent,
+		"--referer\n" + defaultYTDLPReferer,
+		"--add-header\nAccept-Language:" + defaultAcceptLanguage,
+	} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("missing %q in args: %q", want, got)
+		}
+	}
+	if strings.Contains(got, "--no-call-home") {
+		t.Fatalf("deprecated --no-call-home should not be used: %q", got)
+	}
+}

@@ -28,6 +28,9 @@ const (
 	defaultASRChunkSeconds   = 600
 	defaultMaxAudioBytes     = 24 * 1024 * 1024
 	defaultMaxDurationSec    = 2 * 60 * 60
+	defaultYTDLPUserAgent    = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0 Safari/537.36"
+	defaultYTDLPReferer      = "https://www.bilibili.com/"
+	defaultAcceptLanguage    = "zh-CN,zh;q=0.9,en;q=0.8"
 	minTranscriptRunes       = 40
 )
 
@@ -43,6 +46,9 @@ type VideoFetcher struct {
 	ytDLP             string
 	ffmpeg            string
 	cookiesFile       string
+	userAgent         string
+	referer           string
+	acceptLanguage    string
 	subtitleLanguages string
 	asrBaseURL        string
 	asrAPIKey         string
@@ -79,6 +85,9 @@ func NewVideo() *VideoFetcher {
 		ytDLP:             getenvDefault("YTDLP_BIN", "yt-dlp"),
 		ffmpeg:            getenvDefault("FFMPEG_BIN", "ffmpeg"),
 		cookiesFile:       os.Getenv("YTDLP_COOKIES_FILE"),
+		userAgent:         getenvDefault("YTDLP_USER_AGENT", defaultYTDLPUserAgent),
+		referer:           getenvDefault("YTDLP_REFERER", defaultYTDLPReferer),
+		acceptLanguage:    getenvDefault("YTDLP_ACCEPT_LANGUAGE", defaultAcceptLanguage),
 		subtitleLanguages: getenvDefault("VIDEO_SUB_LANGS", defaultSubtitleLanguages),
 		asrBaseURL:        getenvDefault("ASR_BASE_URL", getenvDefault("LLM_BASE_URL", "https://api.openai.com/v1")),
 		asrAPIKey:         getenvDefault("ASR_API_KEY", os.Getenv("LLM_API_KEY")),
@@ -114,23 +123,27 @@ func (f *VideoFetcher) Fetch(ctx context.Context, t *task.Task) (string, error) 
 		return composeVideoContent(info, "字幕", transcript), nil
 	}
 
+	var asrErr error
 	if f.asrConfigured() {
 		audio, err := f.downloadAudio(ctx, workDir, t.URL)
 		if err != nil {
-			return "", err
-		}
-		transcript, err := f.transcribeAudio(ctx, workDir, audio)
-		if err != nil {
-			return "", err
-		}
-		if enoughTranscript(transcript) {
-			return composeVideoContent(info, "语音转文字", transcript), nil
+			asrErr = err
+		} else {
+			transcript, err := f.transcribeAudio(ctx, workDir, audio)
+			if err != nil {
+				asrErr = err
+			} else if enoughTranscript(transcript) {
+				return composeVideoContent(info, "语音转文字", transcript), nil
+			}
 		}
 	}
 
 	fallback := metadataFallback(info)
 	if enoughTranscript(fallback) {
 		return composeVideoContent(info, "视频简介", fallback), nil
+	}
+	if asrErr != nil {
+		return "", asrErr
 	}
 	return "", fmt.Errorf("video fetcher: no subtitles found and ASR is not configured")
 }
@@ -346,7 +359,15 @@ func (f *VideoFetcher) transcribeFile(ctx context.Context, audioPath string) (st
 func (f *VideoFetcher) baseYTDLPArgs() []string {
 	args := []string{
 		"--no-warnings",
-		"--no-call-home",
+	}
+	if f.userAgent != "" {
+		args = append(args, "--user-agent", f.userAgent)
+	}
+	if f.referer != "" {
+		args = append(args, "--referer", f.referer)
+	}
+	if f.acceptLanguage != "" {
+		args = append(args, "--add-header", "Accept-Language:"+f.acceptLanguage)
 	}
 	if f.cookiesFile != "" {
 		args = append(args, "--cookies", f.cookiesFile)
