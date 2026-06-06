@@ -48,6 +48,15 @@ type Notifier interface {
 	Send(ctx context.Context, userID, message string) error
 }
 
+type UserSettings struct {
+	NotifyChannel string
+	NotifyPolicy  string
+}
+
+type UserSettingsProvider interface {
+	GetPipelineSettings(ctx context.Context, userID string) (UserSettings, error)
+}
+
 // OnStatusFunc receives an immutable snapshot — safe for async WebSocket/logging.
 type OnStatusFunc func(snap task.Snapshot)
 
@@ -90,6 +99,12 @@ type stages struct {
 	store    Store
 	notifier Notifier
 	onStatus OnStatusFunc
+	settings UserSettingsProvider
+}
+
+func newStages(st Store, n Notifier, on OnStatusFunc) stages {
+	settings, _ := st.(UserSettingsProvider)
+	return stages{store: st, notifier: n, onStatus: on, settings: settings}
 }
 
 // setStatus persists state and notifies the board.
@@ -148,6 +163,12 @@ func (s *stages) saveAndNotify(ctx context.Context, t *task.Task, summary string
 	s.addStep(ctx, t, "存入知识库", task.StepOK, "", start)
 
 	if t.FilterDecision() == task.FilterPass {
+		notify, skipReason := s.shouldNotify(ctx, t.UserID)
+		if !notify {
+			s.addStep(ctx, t, "推送通知", task.StepSkipped, skipReason, time.Now())
+			_ = s.setStatus(ctx, t, task.StatusDone)
+			return nil
+		}
 		if err := s.setStatus(ctx, t, task.StatusNotifying); err != nil {
 			// non-fatal: content already saved; record and continue to Done
 			s.addStep(ctx, t, "更新通知状态", task.StepError, err.Error(), time.Now())
@@ -166,6 +187,33 @@ func (s *stages) saveAndNotify(ctx context.Context, t *task.Task, summary string
 	return nil
 }
 
+func (s *stages) shouldNotify(ctx context.Context, userID string) (bool, string) {
+	settings := UserSettings{NotifyChannel: "telegram", NotifyPolicy: "pass_only"}
+	if s.settings != nil {
+		userSettings, err := s.settings.GetPipelineSettings(ctx, userID)
+		if err == nil {
+			settings = normalizeUserSettings(userSettings)
+		}
+	}
+	if settings.NotifyChannel == "none" {
+		return false, "通知通道已关闭"
+	}
+	if settings.NotifyPolicy == "save_only" {
+		return false, "用户设置为静默归档"
+	}
+	return true, ""
+}
+
+func normalizeUserSettings(settings UserSettings) UserSettings {
+	if settings.NotifyChannel != "telegram" && settings.NotifyChannel != "none" {
+		settings.NotifyChannel = "telegram"
+	}
+	if settings.NotifyPolicy != "pass_only" && settings.NotifyPolicy != "save_only" {
+		settings.NotifyPolicy = "pass_only"
+	}
+	return settings
+}
+
 // ── WebPagePipeline ───────────────────────────────────────────────────────────
 
 type WebPagePipeline struct {
@@ -176,7 +224,7 @@ type WebPagePipeline struct {
 }
 
 func NewWebPage(f Fetcher, fl Filterer, su Summarizer, st Store, n Notifier, on OnStatusFunc) *WebPagePipeline {
-	return &WebPagePipeline{stages: stages{st, n, on}, fetcher: f, filterer: fl, summarizer: su}
+	return &WebPagePipeline{stages: newStages(st, n, on), fetcher: f, filterer: fl, summarizer: su}
 }
 
 func (p *WebPagePipeline) ContentType() task.ContentType { return task.ContentWebPage }
@@ -238,7 +286,7 @@ type VideoPipeline struct {
 }
 
 func NewVideo(f Fetcher, fl Filterer, su Summarizer, st Store, n Notifier, on OnStatusFunc) *VideoPipeline {
-	return &VideoPipeline{stages: stages{st, n, on}, fetcher: f, filterer: fl, summarizer: su}
+	return &VideoPipeline{stages: newStages(st, n, on), fetcher: f, filterer: fl, summarizer: su}
 }
 
 func (p *VideoPipeline) ContentType() task.ContentType { return task.ContentVideo }
@@ -307,7 +355,7 @@ type EmailPipeline struct {
 }
 
 func NewEmail(cl Classifier, su Summarizer, st Store, n Notifier, on OnStatusFunc) *EmailPipeline {
-	return &EmailPipeline{stages: stages{st, n, on}, classifier: cl, summarizer: su}
+	return &EmailPipeline{stages: newStages(st, n, on), classifier: cl, summarizer: su}
 }
 
 func (p *EmailPipeline) ContentType() task.ContentType { return task.ContentEmail }
@@ -362,7 +410,7 @@ type MessagePipeline struct {
 }
 
 func NewMessage(ex Extractor, st Store, n Notifier, on OnStatusFunc) *MessagePipeline {
-	return &MessagePipeline{stages: stages{st, n, on}, extractor: ex}
+	return &MessagePipeline{stages: newStages(st, n, on), extractor: ex}
 }
 
 func (p *MessagePipeline) ContentType() task.ContentType { return task.ContentMessage }

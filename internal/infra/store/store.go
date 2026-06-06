@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"github.com/cespare/xxhash/v2"
 	"github.com/codo/codo/internal/application/pipeline"
 	"github.com/codo/codo/internal/domain/task"
+	"github.com/codo/codo/internal/infra/llm"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -174,6 +176,173 @@ func (s *Store) listSteps(ctx context.Context, taskID string) ([]StepRow, error)
 		steps = append(steps, st)
 	}
 	return steps, nil
+}
+
+// ── User settings ───────────────────────────────────────────────────────────
+
+type UserSettings struct {
+	UserID         string          `json:"user_id"`
+	NotifyChannel  string          `json:"notify_channel"`
+	FilterKeywords []string        `json:"filter_keywords"`
+	ModelPolicy    UserModelPolicy `json:"model_policy"`
+}
+
+type UserModelPolicy struct {
+	SummaryStyle    string `json:"summary_style"`
+	Language        string `json:"language"`
+	MaxSummaryChars int    `json:"max_summary_chars"`
+	NotifyPolicy    string `json:"notify_policy"`
+}
+
+func DefaultUserModelPolicy() UserModelPolicy {
+	return UserModelPolicy{
+		SummaryStyle:    "concise",
+		Language:        "zh-CN",
+		MaxSummaryChars: 300,
+		NotifyPolicy:    "pass_only",
+	}
+}
+
+func NormalizeUserSettings(settings UserSettings) UserSettings {
+	switch settings.NotifyChannel {
+	case "telegram", "none":
+	default:
+		settings.NotifyChannel = "telegram"
+	}
+	settings.FilterKeywords = normalizeKeywords(settings.FilterKeywords)
+	settings.ModelPolicy = NormalizeUserModelPolicy(settings.ModelPolicy)
+	return settings
+}
+
+func NormalizeUserModelPolicy(policy UserModelPolicy) UserModelPolicy {
+	defaults := DefaultUserModelPolicy()
+	switch policy.SummaryStyle {
+	case "concise", "structured", "actionable":
+	default:
+		policy.SummaryStyle = defaults.SummaryStyle
+	}
+	switch policy.Language {
+	case "zh-CN", "en":
+	default:
+		policy.Language = defaults.Language
+	}
+	if policy.MaxSummaryChars < 120 {
+		policy.MaxSummaryChars = defaults.MaxSummaryChars
+	}
+	if policy.MaxSummaryChars > 1000 {
+		policy.MaxSummaryChars = 1000
+	}
+	switch policy.NotifyPolicy {
+	case "pass_only", "save_only":
+	default:
+		policy.NotifyPolicy = defaults.NotifyPolicy
+	}
+	return policy
+}
+
+func (s *Store) GetUserSettings(ctx context.Context, userID string) (UserSettings, error) {
+	if err := s.ensureUser(ctx, userID); err != nil {
+		return UserSettings{}, err
+	}
+
+	settings := UserSettings{}
+	var rawPolicy string
+	err := s.db.QueryRow(ctx, `
+		SELECT id,
+		       COALESCE(NULLIF(notify_channel, ''), 'telegram'),
+		       COALESCE(filter_keywords, '{}'::text[]),
+		       COALESCE(model_policy, '{}'::jsonb)::text
+		FROM users
+		WHERE id = $1`, userID).Scan(
+		&settings.UserID,
+		&settings.NotifyChannel,
+		&settings.FilterKeywords,
+		&rawPolicy,
+	)
+	if err != nil {
+		return UserSettings{}, err
+	}
+	if strings.TrimSpace(rawPolicy) != "" {
+		if err := json.Unmarshal([]byte(rawPolicy), &settings.ModelPolicy); err != nil {
+			return UserSettings{}, fmt.Errorf("parse user model policy: %w", err)
+		}
+	}
+	return NormalizeUserSettings(settings), nil
+}
+
+func (s *Store) UpdateUserSettings(ctx context.Context, settings UserSettings) error {
+	if err := s.ensureUser(ctx, settings.UserID); err != nil {
+		return err
+	}
+	settings = NormalizeUserSettings(settings)
+	policyJSON, err := json.Marshal(settings.ModelPolicy)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `
+		UPDATE users
+		SET notify_channel = $2,
+		    filter_keywords = $3,
+		    model_policy = $4::jsonb
+		WHERE id = $1`,
+		settings.UserID,
+		settings.NotifyChannel,
+		settings.FilterKeywords,
+		string(policyJSON),
+	)
+	return err
+}
+
+func (s *Store) GetPipelineSettings(ctx context.Context, userID string) (pipeline.UserSettings, error) {
+	settings, err := s.GetUserSettings(ctx, userID)
+	if err != nil {
+		return pipeline.UserSettings{}, err
+	}
+	return pipeline.UserSettings{
+		NotifyChannel: settings.NotifyChannel,
+		NotifyPolicy:  settings.ModelPolicy.NotifyPolicy,
+	}, nil
+}
+
+func (s *Store) GetLLMPreferences(ctx context.Context, userID string) (llm.UserPreferences, error) {
+	settings, err := s.GetUserSettings(ctx, userID)
+	if err != nil {
+		return llm.UserPreferences{}, err
+	}
+	return llm.UserPreferences{
+		FilterKeywords:  settings.FilterKeywords,
+		SummaryStyle:    settings.ModelPolicy.SummaryStyle,
+		Language:        settings.ModelPolicy.Language,
+		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
+	}, nil
+}
+
+func normalizeKeywords(keywords []string) []string {
+	out := make([]string, 0, len(keywords))
+	seen := make(map[string]struct{}, len(keywords))
+	for _, keyword := range keywords {
+		keyword = strings.TrimSpace(keyword)
+		if keyword == "" {
+			continue
+		}
+		runes := []rune(keyword)
+		if len(runes) > 40 {
+			keyword = string(runes[:40])
+		}
+		key := strings.ToLower(keyword)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, keyword)
+		if len(out) >= 32 {
+			break
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
 }
 
 // ── Subscription ─────────────────────────────────────────────────────────────
@@ -414,3 +583,5 @@ func truncateText(s string, maxRunes int) string {
 
 // Verify Store satisfies pipeline.Store at compile time.
 var _ pipeline.Store = (*Store)(nil)
+var _ pipeline.UserSettingsProvider = (*Store)(nil)
+var _ llm.UserPreferencesProvider = (*Store)(nil)

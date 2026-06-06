@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Task, Subscription } from './types'
+import type { Task, Subscription, UserSettings, UserSettingsPatch } from './types'
 
 export const api = {
   submitUrl: (url: string) =>
@@ -25,4 +25,10 @@ export const api = {
 
   refreshSubscription: (id: string) =>
     axios.post<{ items: number }>(`/api/subscriptions/${id}/refresh`).then(r => r.data),
+
+  getSettings: () =>
+    axios.get<UserSettings>('/api/settings').then(r => r.data),
+
+  updateSettings: (payload: UserSettingsPatch) =>
+    axios.patch<UserSettings>('/api/settings', payload).then(r => r.data),
 }

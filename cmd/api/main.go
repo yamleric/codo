@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"sync"
 	"time"
@@ -134,6 +135,49 @@ func (s *server) retryTask(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"id": newID})
+}
+
+// GET /api/settings
+// PATCH /api/settings
+func (s *server) settings(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,PATCH,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	current, err := s.st.GetUserSettings(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	switch r.Method {
+	case http.MethodGet:
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(settingsResponseFromStore(current))
+	case http.MethodPatch:
+		var body settingsPatch
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		updated, err := applySettingsPatch(current, body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if err := s.st.UpdateUserSettings(r.Context(), updated); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(settingsResponseFromStore(updated))
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
 }
 
 // GET /ws
@@ -332,6 +376,101 @@ type subscriptionPayload struct {
 	Enabled  *bool   `json:"enabled"`
 }
 
+type settingsResponse struct {
+	UserID          string          `json:"user_id"`
+	NotifyChannel   string          `json:"notify_channel"`
+	NotifyPolicy    string          `json:"notify_policy"`
+	SummaryStyle    string          `json:"summary_style"`
+	Language        string          `json:"language"`
+	MaxSummaryChars int             `json:"max_summary_chars"`
+	FilterKeywords  []string        `json:"filter_keywords"`
+	Runtime         settingsRuntime `json:"runtime"`
+}
+
+type settingsRuntime struct {
+	LLMConfigured      bool `json:"llm_configured"`
+	ASRConfigured      bool `json:"asr_configured"`
+	TelegramConfigured bool `json:"telegram_configured"`
+	YTDLPConfigured    bool `json:"yt_dlp_configured"`
+	FFMPEGConfigured   bool `json:"ffmpeg_configured"`
+}
+
+type settingsPatch struct {
+	NotifyChannel   *string   `json:"notify_channel"`
+	NotifyPolicy    *string   `json:"notify_policy"`
+	SummaryStyle    *string   `json:"summary_style"`
+	Language        *string   `json:"language"`
+	MaxSummaryChars *int      `json:"max_summary_chars"`
+	FilterKeywords  *[]string `json:"filter_keywords"`
+}
+
+func settingsResponseFromStore(settings store.UserSettings) settingsResponse {
+	settings = store.NormalizeUserSettings(settings)
+	return settingsResponse{
+		UserID:          settings.UserID,
+		NotifyChannel:   settings.NotifyChannel,
+		NotifyPolicy:    settings.ModelPolicy.NotifyPolicy,
+		SummaryStyle:    settings.ModelPolicy.SummaryStyle,
+		Language:        settings.ModelPolicy.Language,
+		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
+		FilterKeywords:  settings.FilterKeywords,
+		Runtime:         runtimeSettings(),
+	}
+}
+
+func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.UserSettings, error) {
+	if patch.NotifyChannel != nil {
+		value := strings.TrimSpace(*patch.NotifyChannel)
+		if value != "telegram" && value != "none" {
+			return store.UserSettings{}, fmt.Errorf("invalid notify_channel")
+		}
+		current.NotifyChannel = value
+	}
+	if patch.NotifyPolicy != nil {
+		value := strings.TrimSpace(*patch.NotifyPolicy)
+		if value != "pass_only" && value != "save_only" {
+			return store.UserSettings{}, fmt.Errorf("invalid notify_policy")
+		}
+		current.ModelPolicy.NotifyPolicy = value
+	}
+	if patch.SummaryStyle != nil {
+		value := strings.TrimSpace(*patch.SummaryStyle)
+		if value != "concise" && value != "structured" && value != "actionable" {
+			return store.UserSettings{}, fmt.Errorf("invalid summary_style")
+		}
+		current.ModelPolicy.SummaryStyle = value
+	}
+	if patch.Language != nil {
+		value := strings.TrimSpace(*patch.Language)
+		if value != "zh-CN" && value != "en" {
+			return store.UserSettings{}, fmt.Errorf("invalid language")
+		}
+		current.ModelPolicy.Language = value
+	}
+	if patch.MaxSummaryChars != nil {
+		if *patch.MaxSummaryChars < 120 || *patch.MaxSummaryChars > 1000 {
+			return store.UserSettings{}, fmt.Errorf("max_summary_chars must be between 120 and 1000")
+		}
+		current.ModelPolicy.MaxSummaryChars = *patch.MaxSummaryChars
+	}
+	if patch.FilterKeywords != nil {
+		current.FilterKeywords = *patch.FilterKeywords
+	}
+	return store.NormalizeUserSettings(current), nil
+}
+
+func runtimeSettings() settingsRuntime {
+	_, ytDLPErr := exec.LookPath(getenv("YTDLP_BIN", "yt-dlp"))
+	_, ffmpegErr := exec.LookPath(getenv("FFMPEG_BIN", "ffmpeg"))
+	return settingsRuntime{
+		LLMConfigured:      os.Getenv("LLM_API_KEY") != "",
+		ASRConfigured:      getenv("ASR_API_KEY", os.Getenv("LLM_API_KEY")) != "",
+		TelegramConfigured: os.Getenv("TELEGRAM_TOKEN") != "",
+		YTDLPConfigured:    ytDLPErr == nil,
+		FFMPEGConfigured:   ffmpegErr == nil,
+	}
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -345,9 +484,10 @@ func main() {
 	h := &hub{clients: make(map[*websocket.Conn]struct{})}
 
 	llmClient := llm.NewClient(llm.Config{
-		BaseURL: getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
-		APIKey:  getenv("LLM_API_KEY", ""),
-		Model:   getenv("LLM_MODEL", "gpt-4o-mini"),
+		BaseURL:     getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
+		APIKey:      getenv("LLM_API_KEY", ""),
+		Model:       getenv("LLM_MODEL", "gpt-4o-mini"),
+		Preferences: st,
 	})
 
 	var notifier pipeline.Notifier = &logNotifier{}
@@ -391,6 +531,7 @@ func main() {
 	})
 	mux.HandleFunc("/api/subscriptions", srv.subscriptions)
 	mux.HandleFunc("/api/subscriptions/", srv.subscriptionByID)
+	mux.HandleFunc("/api/settings", srv.settings)
 	mux.HandleFunc("/ws", srv.wsHandler)
 	mux.Handle("/", http.FileServer(http.Dir(getenv("WEB_DIR", "./web/dist"))))
 
