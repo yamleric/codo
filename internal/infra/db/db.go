@@ -48,6 +48,19 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS bookmarks_url_hash_user ON bookmarks(user_id, url_hash)`,
 		`CREATE INDEX IF NOT EXISTS bookmarks_user_status_idx ON bookmarks(user_id, status, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS bookmarks_user_folder_idx ON bookmarks(user_id, folder)`,
+		`CREATE TABLE IF NOT EXISTS daily_reports (
+			id          TEXT PRIMARY KEY,
+			user_id     TEXT NOT NULL REFERENCES users(id),
+			report_date DATE NOT NULL,
+			status      TEXT NOT NULL DEFAULT 'running',
+			item_count  INTEGER NOT NULL DEFAULT 0,
+			last_error  TEXT NOT NULL DEFAULT '',
+			sent_at     TIMESTAMPTZ,
+			created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			UNIQUE (user_id, report_date)
+		)`,
+		`CREATE INDEX IF NOT EXISTS daily_reports_user_status_idx ON daily_reports(user_id, status, report_date DESC)`,
 	}
 	for _, statement := range statements {
 		if _, err := pool.Exec(ctx, statement); err != nil {

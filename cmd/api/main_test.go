@@ -1,6 +1,10 @@
 package main
 
-import "testing"
+import (
+	"testing"
+
+	"github.com/codo/codo/internal/infra/store"
+)
 
 func TestBookmarkInputsFromPayloadExtractsAndDeduplicatesURLs(t *testing.T) {
 	title := "显式标题"
@@ -43,5 +47,53 @@ func TestBookmarkInputsFromPayloadKeepsExplicitMetadata(t *testing.T) {
 	}
 	if inputs[0].Title != title || inputs[0].Folder != folder || inputs[0].Note != note {
 		t.Fatalf("metadata not preserved: %#v", inputs[0])
+	}
+}
+
+func TestApplySettingsPatchUpdatesDailyReport(t *testing.T) {
+	email := "me@example.com"
+	enabled := true
+	hour := 8
+	timezone := "Asia/Shanghai"
+	maxItems := 12
+
+	updated, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{
+		DailyReport: &dailyReportPatch{
+			Enabled:  &enabled,
+			Email:    &email,
+			Hour:     &hour,
+			Timezone: &timezone,
+			MaxItems: &maxItems,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.DailyReport.Enabled ||
+		updated.DailyReport.Email != email ||
+		updated.DailyReport.Hour != hour ||
+		updated.DailyReport.Timezone != timezone ||
+		updated.DailyReport.MaxItems != maxItems {
+		t.Fatalf("daily report patch not applied: %#v", updated.DailyReport)
+	}
+}
+
+func TestApplySettingsPatchRejectsInvalidDailyReportEmail(t *testing.T) {
+	email := "not an email"
+	_, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{
+		DailyReport: &dailyReportPatch{Email: &email},
+	})
+	if err == nil {
+		t.Fatal("expected invalid email error")
+	}
+}
+
+func storeDefaultSettings() store.UserSettings {
+	return store.UserSettings{
+		UserID:         "demo-user",
+		NotifyChannel:  "telegram",
+		FilterKeywords: []string{},
+		ModelPolicy:    store.DefaultUserModelPolicy(),
+		DailyReport:    store.DefaultDailyReport(),
 	}
 }

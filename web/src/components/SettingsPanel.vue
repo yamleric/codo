@@ -120,6 +120,80 @@
         </div>
       </section>
 
+      <section class="settings-card daily-report-card">
+        <header>
+          <span class="settings-card-icon"><Mail :size="16" /></span>
+          <div>
+            <strong>日报</strong>
+            <small>{{ form.daily_report.enabled ? reportScheduleText : '邮箱日报已关闭' }}</small>
+          </div>
+        </header>
+
+        <label class="settings-field">
+          <span>日报推送</span>
+          <div class="settings-segmented">
+            <button
+              type="button"
+              :class="{ active: form.daily_report.enabled }"
+              :aria-pressed="form.daily_report.enabled"
+              @click="form.daily_report.enabled = true"
+            >
+              <MailCheck :size="14" />
+              开启
+            </button>
+            <button
+              type="button"
+              :class="{ active: !form.daily_report.enabled }"
+              :aria-pressed="!form.daily_report.enabled"
+              @click="form.daily_report.enabled = false"
+            >
+              <MailX :size="14" />
+              关闭
+            </button>
+          </div>
+        </label>
+
+        <label class="settings-field">
+          <span>收件邮箱</span>
+          <input
+            v-model.trim="form.daily_report.email"
+            type="email"
+            placeholder="name@example.com"
+          />
+        </label>
+
+        <div class="settings-triple">
+          <label class="settings-field">
+            <span>发送小时</span>
+            <input
+              v-model.number="form.daily_report.hour"
+              type="number"
+              min="0"
+              max="23"
+              step="1"
+            />
+          </label>
+          <label class="settings-field">
+            <span>时区</span>
+            <input
+              v-model.trim="form.daily_report.timezone"
+              type="text"
+              placeholder="Asia/Shanghai"
+            />
+          </label>
+          <label class="settings-field">
+            <span>最大条数</span>
+            <input
+              v-model.number="form.daily_report.max_items"
+              type="number"
+              min="1"
+              max="80"
+              step="1"
+            />
+          </label>
+        </div>
+      </section>
+
       <section class="settings-card keywords-card">
         <header>
           <span class="settings-card-icon"><ListChecks :size="16" /></span>
@@ -205,6 +279,9 @@ import {
   Languages,
   ListChecks,
   LoaderCircle,
+  Mail,
+  MailCheck,
+  MailX,
   MessageCircle,
   Mic,
   Plus,
@@ -231,6 +308,13 @@ interface SettingsForm {
   language: SummaryLanguage
   max_summary_chars: number
   filter_keywords: string[]
+  daily_report: {
+    enabled: boolean
+    email: string
+    hour: number
+    timezone: string
+    max_items: number
+  }
 }
 
 const settings = ref<UserSettings | null>(null)
@@ -249,6 +333,13 @@ const form = reactive<SettingsForm>({
   language: 'zh-CN',
   max_summary_chars: 300,
   filter_keywords: [],
+  daily_report: {
+    enabled: false,
+    email: '',
+    hour: 21,
+    timezone: 'Asia/Shanghai',
+    max_items: 20,
+  },
 })
 
 const notifyChannelOptions = [
@@ -274,12 +365,18 @@ const languageOptions = [
 
 const dirty = computed(() => serializeForm() !== original.value)
 
+const reportScheduleText = computed(() => {
+  const hour = clampReportHour(form.daily_report.hour).toString().padStart(2, '0')
+  return `${form.daily_report.timezone || 'Asia/Shanghai'} ${hour}:00`
+})
+
 const runtimeItems = computed(() => {
   const runtime = settings.value?.runtime
   return [
     { label: 'LLM', detail: '过滤与摘要', configured: !!runtime?.llm_configured, icon: KeyRound },
     { label: 'ASR', detail: '视频转写', configured: !!runtime?.asr_configured, icon: Mic },
     { label: 'Telegram', detail: '消息推送', configured: !!runtime?.telegram_configured, icon: MessageCircle },
+    { label: 'SMTP', detail: '邮箱日报', configured: !!runtime?.email_configured, icon: Mail },
     { label: '浏览器抓取', detail: '知乎渲染', configured: !!runtime?.playwright_configured, icon: Terminal },
     { label: 'yt-dlp', detail: '视频获取', configured: !!runtime?.yt_dlp_configured, icon: Terminal },
     { label: '视频 Cookies', detail: '抖音授权', configured: !!runtime?.yt_dlp_cookies_set, icon: KeyRound },
@@ -309,6 +406,7 @@ async function save() {
   savedMessage.value = ''
   try {
     form.max_summary_chars = clampSummaryChars(form.max_summary_chars)
+    form.daily_report = normalizeDailyReport(form.daily_report)
     form.filter_keywords = normalizeKeywords(form.filter_keywords)
     const payload: UserSettingsPatch = {
       notify_channel: form.notify_channel,
@@ -317,6 +415,7 @@ async function save() {
       language: form.language,
       max_summary_chars: form.max_summary_chars,
       filter_keywords: form.filter_keywords,
+      daily_report: form.daily_report,
     }
     const next = await api.updateSettings(payload)
     hydrate(next)
@@ -339,6 +438,13 @@ function hydrate(next: UserSettings) {
   form.language = next.language
   form.max_summary_chars = next.max_summary_chars
   form.filter_keywords = [...next.filter_keywords]
+  form.daily_report = normalizeDailyReport(next.daily_report || {
+    enabled: false,
+    email: '',
+    hour: 21,
+    timezone: 'Asia/Shanghai',
+    max_items: 20,
+  })
   original.value = serializeForm()
 }
 
@@ -372,6 +478,7 @@ function serializeForm() {
     language: form.language,
     max_summary_chars: Number.isFinite(form.max_summary_chars) ? Math.round(form.max_summary_chars) : 300,
     filter_keywords: normalizeKeywords(form.filter_keywords),
+    daily_report: normalizeDailyReport(form.daily_report),
   })
 }
 
@@ -392,6 +499,26 @@ function normalizeKeywords(values: string[]) {
 function clampSummaryChars(value: number) {
   const numeric = Number.isFinite(value) ? value : 300
   return Math.min(1000, Math.max(120, Math.round(numeric)))
+}
+
+function normalizeDailyReport(report: SettingsForm['daily_report']) {
+  return {
+    enabled: !!report.enabled,
+    email: (report.email || '').trim(),
+    hour: clampReportHour(report.hour),
+    timezone: (report.timezone || 'Asia/Shanghai').trim(),
+    max_items: clampReportMaxItems(report.max_items),
+  }
+}
+
+function clampReportHour(value: number) {
+  const numeric = Number.isFinite(value) ? value : 21
+  return Math.min(23, Math.max(0, Math.round(numeric)))
+}
+
+function clampReportMaxItems(value: number) {
+  const numeric = Number.isFinite(value) ? value : 20
+  return Math.min(80, Math.max(1, Math.round(numeric)))
 }
 
 onMounted(load)

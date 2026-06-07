@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/mail"
 	"strings"
 	"time"
 
@@ -458,6 +459,7 @@ type UserSettings struct {
 	NotifyChannel  string          `json:"notify_channel"`
 	FilterKeywords []string        `json:"filter_keywords"`
 	ModelPolicy    UserModelPolicy `json:"model_policy"`
+	DailyReport    DailyReport     `json:"daily_report"`
 }
 
 type UserModelPolicy struct {
@@ -465,6 +467,14 @@ type UserModelPolicy struct {
 	Language        string `json:"language"`
 	MaxSummaryChars int    `json:"max_summary_chars"`
 	NotifyPolicy    string `json:"notify_policy"`
+}
+
+type DailyReport struct {
+	Enabled  bool   `json:"enabled"`
+	Email    string `json:"email"`
+	Hour     int    `json:"hour"`
+	Timezone string `json:"timezone"`
+	MaxItems int    `json:"max_items"`
 }
 
 func DefaultUserModelPolicy() UserModelPolicy {
@@ -476,6 +486,16 @@ func DefaultUserModelPolicy() UserModelPolicy {
 	}
 }
 
+func DefaultDailyReport() DailyReport {
+	return DailyReport{
+		Enabled:  false,
+		Email:    "",
+		Hour:     21,
+		Timezone: "Asia/Shanghai",
+		MaxItems: 20,
+	}
+}
+
 func NormalizeUserSettings(settings UserSettings) UserSettings {
 	switch settings.NotifyChannel {
 	case "telegram", "none":
@@ -484,6 +504,7 @@ func NormalizeUserSettings(settings UserSettings) UserSettings {
 	}
 	settings.FilterKeywords = normalizeKeywords(settings.FilterKeywords)
 	settings.ModelPolicy = NormalizeUserModelPolicy(settings.ModelPolicy)
+	settings.DailyReport = NormalizeDailyReport(settings.DailyReport)
 	return settings
 }
 
@@ -513,6 +534,39 @@ func NormalizeUserModelPolicy(policy UserModelPolicy) UserModelPolicy {
 	return policy
 }
 
+func NormalizeDailyReport(report DailyReport) DailyReport {
+	defaults := DefaultDailyReport()
+	report.Email = strings.TrimSpace(report.Email)
+	if len(report.Email) > 160 {
+		report.Email = ""
+	}
+	if report.Email != "" {
+		if _, err := mail.ParseAddress(report.Email); err != nil {
+			report.Email = ""
+		}
+	}
+	if report.Hour < 0 || report.Hour > 23 {
+		report.Hour = defaults.Hour
+	}
+	report.Timezone = strings.TrimSpace(report.Timezone)
+	if report.Timezone == "" {
+		report.Timezone = defaults.Timezone
+	}
+	if _, err := time.LoadLocation(report.Timezone); err != nil {
+		report.Timezone = defaults.Timezone
+	}
+	if report.MaxItems <= 0 {
+		report.MaxItems = defaults.MaxItems
+	}
+	if report.MaxItems > 80 {
+		report.MaxItems = 80
+	}
+	if report.Enabled && report.Email == "" {
+		report.Enabled = false
+	}
+	return report
+}
+
 func (s *Store) GetUserSettings(ctx context.Context, userID string) (UserSettings, error) {
 	if err := s.ensureUser(ctx, userID); err != nil {
 		return UserSettings{}, err
@@ -540,6 +594,7 @@ func (s *Store) GetUserSettings(ctx context.Context, userID string) (UserSetting
 			return UserSettings{}, fmt.Errorf("parse user model policy: %w", err)
 		}
 	}
+	settings.DailyReport = dailyReportFromRawPolicy(rawPolicy)
 	return NormalizeUserSettings(settings), nil
 }
 
@@ -548,7 +603,14 @@ func (s *Store) UpdateUserSettings(ctx context.Context, settings UserSettings) e
 		return err
 	}
 	settings = NormalizeUserSettings(settings)
-	policyJSON, err := json.Marshal(settings.ModelPolicy)
+	policyPayload := map[string]any{
+		"summary_style":     settings.ModelPolicy.SummaryStyle,
+		"language":          settings.ModelPolicy.Language,
+		"max_summary_chars": settings.ModelPolicy.MaxSummaryChars,
+		"notify_policy":     settings.ModelPolicy.NotifyPolicy,
+		"daily_report":      settings.DailyReport,
+	}
+	policyJSON, err := json.Marshal(policyPayload)
 	if err != nil {
 		return err
 	}
@@ -575,6 +637,20 @@ func (s *Store) GetPipelineSettings(ctx context.Context, userID string) (pipelin
 		NotifyChannel: settings.NotifyChannel,
 		NotifyPolicy:  settings.ModelPolicy.NotifyPolicy,
 	}, nil
+}
+
+func dailyReportFromRawPolicy(rawPolicy string) DailyReport {
+	defaults := DefaultDailyReport()
+	if strings.TrimSpace(rawPolicy) == "" {
+		return defaults
+	}
+	var payload struct {
+		DailyReport DailyReport `json:"daily_report"`
+	}
+	if err := json.Unmarshal([]byte(rawPolicy), &payload); err != nil {
+		return defaults
+	}
+	return payload.DailyReport
 }
 
 func (s *Store) GetLLMPreferences(ctx context.Context, userID string) (llm.UserPreferences, error) {
