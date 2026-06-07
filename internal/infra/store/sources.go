@@ -358,7 +358,7 @@ func (s *Store) ListCurrentSourceItems(ctx context.Context, userID, sourceType s
 		  AND ($2 = '' OR si.source_type = $2)
 		  AND (
 		    sub.last_fetched_at IS NULL
-		    OR si.last_seen_at >= sub.last_fetched_at - INTERVAL '10 minutes'
+		    OR si.last_seen_at >= sub.last_fetched_at - INTERVAL '2 minutes'
 		  )
 		ORDER BY COALESCE(si.due_at, si.last_seen_at) ASC, si.last_seen_at DESC
 		LIMIT $3`, userID, sourceType, limit)
