@@ -24,6 +24,14 @@ func Connect(ctx context.Context) (*pgxpool.Pool, error) {
 }
 
 func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
+	const migrationLockKey int64 = 0x636f646f
+	if _, err := pool.Exec(ctx, `SELECT pg_advisory_lock($1)`, migrationLockKey); err != nil {
+		return fmt.Errorf("db migrate lock: %w", err)
+	}
+	defer func() {
+		_, _ = pool.Exec(context.Background(), `SELECT pg_advisory_unlock($1)`, migrationLockKey)
+	}()
+
 	statements := []string{
 		`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
