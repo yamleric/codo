@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/mail"
 	"net/url"
 	"os"
 	"os/exec"
@@ -527,20 +528,22 @@ type bookmarkSyncPayload struct {
 }
 
 type settingsResponse struct {
-	UserID          string          `json:"user_id"`
-	NotifyChannel   string          `json:"notify_channel"`
-	NotifyPolicy    string          `json:"notify_policy"`
-	SummaryStyle    string          `json:"summary_style"`
-	Language        string          `json:"language"`
-	MaxSummaryChars int             `json:"max_summary_chars"`
-	FilterKeywords  []string        `json:"filter_keywords"`
-	Runtime         settingsRuntime `json:"runtime"`
+	UserID          string            `json:"user_id"`
+	NotifyChannel   string            `json:"notify_channel"`
+	NotifyPolicy    string            `json:"notify_policy"`
+	SummaryStyle    string            `json:"summary_style"`
+	Language        string            `json:"language"`
+	MaxSummaryChars int               `json:"max_summary_chars"`
+	FilterKeywords  []string          `json:"filter_keywords"`
+	DailyReport     store.DailyReport `json:"daily_report"`
+	Runtime         settingsRuntime   `json:"runtime"`
 }
 
 type settingsRuntime struct {
 	LLMConfigured          bool `json:"llm_configured"`
 	ASRConfigured          bool `json:"asr_configured"`
 	TelegramConfigured     bool `json:"telegram_configured"`
+	EmailConfigured        bool `json:"email_configured"`
 	YTDLPConfigured        bool `json:"yt_dlp_configured"`
 	YTDLPCookiesSet        bool `json:"yt_dlp_cookies_set"`
 	YTDLPBrowserCookiesSet bool `json:"yt_dlp_browser_cookies_set"`
@@ -549,12 +552,21 @@ type settingsRuntime struct {
 }
 
 type settingsPatch struct {
-	NotifyChannel   *string   `json:"notify_channel"`
-	NotifyPolicy    *string   `json:"notify_policy"`
-	SummaryStyle    *string   `json:"summary_style"`
-	Language        *string   `json:"language"`
-	MaxSummaryChars *int      `json:"max_summary_chars"`
-	FilterKeywords  *[]string `json:"filter_keywords"`
+	NotifyChannel   *string           `json:"notify_channel"`
+	NotifyPolicy    *string           `json:"notify_policy"`
+	SummaryStyle    *string           `json:"summary_style"`
+	Language        *string           `json:"language"`
+	MaxSummaryChars *int              `json:"max_summary_chars"`
+	FilterKeywords  *[]string         `json:"filter_keywords"`
+	DailyReport     *dailyReportPatch `json:"daily_report"`
+}
+
+type dailyReportPatch struct {
+	Enabled  *bool   `json:"enabled"`
+	Email    *string `json:"email"`
+	Hour     *int    `json:"hour"`
+	Timezone *string `json:"timezone"`
+	MaxItems *int    `json:"max_items"`
 }
 
 func settingsResponseFromStore(settings store.UserSettings) settingsResponse {
@@ -567,6 +579,7 @@ func settingsResponseFromStore(settings store.UserSettings) settingsResponse {
 		Language:        settings.ModelPolicy.Language,
 		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
 		FilterKeywords:  settings.FilterKeywords,
+		DailyReport:     settings.DailyReport,
 		Runtime:         runtimeSettings(),
 	}
 }
@@ -609,6 +622,47 @@ func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.
 	if patch.FilterKeywords != nil {
 		current.FilterKeywords = *patch.FilterKeywords
 	}
+	if patch.DailyReport != nil {
+		report := current.DailyReport
+		if patch.DailyReport.Enabled != nil {
+			report.Enabled = *patch.DailyReport.Enabled
+		}
+		if patch.DailyReport.Email != nil {
+			value := strings.TrimSpace(*patch.DailyReport.Email)
+			if value != "" {
+				if _, err := mail.ParseAddress(value); err != nil {
+					return store.UserSettings{}, fmt.Errorf("invalid daily_report.email")
+				}
+			}
+			report.Email = value
+		}
+		if patch.DailyReport.Hour != nil {
+			if *patch.DailyReport.Hour < 0 || *patch.DailyReport.Hour > 23 {
+				return store.UserSettings{}, fmt.Errorf("daily_report.hour must be between 0 and 23")
+			}
+			report.Hour = *patch.DailyReport.Hour
+		}
+		if patch.DailyReport.Timezone != nil {
+			value := strings.TrimSpace(*patch.DailyReport.Timezone)
+			if value == "" {
+				return store.UserSettings{}, fmt.Errorf("daily_report.timezone is required")
+			}
+			if _, err := time.LoadLocation(value); err != nil {
+				return store.UserSettings{}, fmt.Errorf("invalid daily_report.timezone")
+			}
+			report.Timezone = value
+		}
+		if patch.DailyReport.MaxItems != nil {
+			if *patch.DailyReport.MaxItems < 1 || *patch.DailyReport.MaxItems > 80 {
+				return store.UserSettings{}, fmt.Errorf("daily_report.max_items must be between 1 and 80")
+			}
+			report.MaxItems = *patch.DailyReport.MaxItems
+		}
+		if report.Enabled && strings.TrimSpace(report.Email) == "" {
+			return store.UserSettings{}, fmt.Errorf("daily_report.email is required when enabled")
+		}
+		current.DailyReport = report
+	}
 	return store.NormalizeUserSettings(current), nil
 }
 
@@ -619,6 +673,7 @@ func runtimeSettings() settingsRuntime {
 		LLMConfigured:          os.Getenv("LLM_API_KEY") != "",
 		ASRConfigured:          os.Getenv("ASR_BASE_URL") != "" && os.Getenv("ASR_API_KEY") != "",
 		TelegramConfigured:     os.Getenv("TELEGRAM_TOKEN") != "",
+		EmailConfigured:        notify.EmailConfiguredFromEnv(),
 		YTDLPConfigured:        ytDLPErr == nil,
 		YTDLPCookiesSet:        os.Getenv("YTDLP_COOKIES_FILE") != "" || os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
 		YTDLPBrowserCookiesSet: os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",

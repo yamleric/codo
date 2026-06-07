@@ -11,10 +11,12 @@ import (
 
 	"github.com/codo/codo/internal/application/ingest"
 	"github.com/codo/codo/internal/application/pipeline"
+	dailyreport "github.com/codo/codo/internal/application/report"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
 	"github.com/codo/codo/internal/infra/fetcher"
 	"github.com/codo/codo/internal/infra/llm"
+	"github.com/codo/codo/internal/infra/notify"
 	"github.com/codo/codo/internal/infra/sources"
 	"github.com/codo/codo/internal/infra/store"
 )
@@ -49,6 +51,7 @@ func main() {
 		slog.Error("router init", "err", err)
 		os.Exit(1)
 	}
+	reportService := dailyReportService(st)
 
 	interval := 30 * time.Minute
 	slog.Info("scheduler started", "interval", interval)
@@ -57,11 +60,13 @@ func main() {
 
 	// run immediately on start
 	runRSS(ctx, st, router)
+	runDailyReport(ctx, reportService)
 
 	for {
 		select {
 		case <-tick.C:
 			runRSS(ctx, st, router)
+			runDailyReport(ctx, reportService)
 		case <-ctx.Done():
 			slog.Info("scheduler stopped")
 			return
@@ -113,6 +118,37 @@ func runRSS(ctx context.Context, st *store.Store, router *pipeline.Router) {
 		}
 
 		_ = st.UpdateLastFetched(ctx, sub.ID)
+	}
+}
+
+func dailyReportService(st *store.Store) *dailyreport.Service {
+	email, err := notify.NewEmailFromEnv()
+	if err != nil {
+		slog.Info("daily report email disabled", "configured", notify.EmailConfiguredFromEnv())
+		return dailyreport.NewService(st, nil)
+	}
+	slog.Info("daily report email enabled")
+	return dailyreport.NewService(st, email)
+}
+
+func runDailyReport(ctx context.Context, service *dailyreport.Service) {
+	if service == nil {
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	runCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	result, err := service.RunForUser(runCtx, userID, time.Now())
+	if err != nil {
+		slog.Warn("daily report failed", "status", result.Status, "date", result.ReportDate, "items", result.ItemCount, "err", err)
+		return
+	}
+	switch result.Status {
+	case "sent", "skipped":
+		slog.Info("daily report completed", "status", result.Status, "date", result.ReportDate, "items", result.ItemCount)
+	case "disabled", "pending", "already_done":
+	default:
+		slog.Info("daily report checked", "status", result.Status, "date", result.ReportDate, "items", result.ItemCount)
 	}
 }
 

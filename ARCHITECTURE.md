@@ -44,7 +44,7 @@ codo/
 │   │   ├── sources/     # RSS(gofeed) / WechatMP / LinuxDo / Chaoxing / IMAP
 │   │   ├── store/       # PostgreSQL + pgvector（实现 Store 接口）
 │   │   ├── queue/       # riverqueue/river（Postgres 事务内入队）
-│   │   └── notify/      # Telegram / 微信
+│   │   └── notify/      # Telegram / Email / 微信
 │   │
 │   └── transport/
 │       └── http/        # Webhook 接收、看板 API、WebSocket
@@ -211,7 +211,36 @@ subscriptions (id, user_id, source_type, config jsonb,
 -- 用户配置（含过滤规则）
 users (id, telegram_id, filter_keywords, notify_channel,
        model_policy jsonb, created_at)
+
+-- 日报发送记录（避免同一天重复发送）
+daily_reports (id, user_id, report_date, status, item_count,
+               last_error, sent_at, created_at, updated_at)
 ```
+
+---
+
+## 日报邮件推送
+
+日报由 `cmd/scheduler` 定时检查，使用 `internal/application/report` 聚合当天已入库的 `articles` 摘要，按分类生成纯文本邮件，并通过 `internal/infra/notify.Email` 发送。单条内容处理仍走 Pipeline 的即时通知策略，日报是独立的汇总用例。
+
+用户可在前台设置：
+
+- 是否启用日报
+- 收件邮箱
+- 本地发送小时
+- 时区
+- 最大条目数
+
+SMTP 连接配置只来自服务器环境变量，不写入数据库，也不会返回给前台：
+
+- `SMTP_HOST`
+- `SMTP_PORT`
+- `SMTP_USERNAME`
+- `SMTP_PASSWORD`
+- `SMTP_FROM`
+- `SMTP_USE_TLS`
+
+`daily_reports` 表使用 `(user_id, report_date)` 唯一约束记录 `sent` / `skipped` / `failed` 状态，确保同一天不会重复发送；失败状态允许后续 scheduler 周期重试。
 
 ---
 

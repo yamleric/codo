@@ -65,11 +65,20 @@ export interface SettingsRuntime {
   llm_configured: boolean
   asr_configured: boolean
   telegram_configured: boolean
+  email_configured: boolean
   yt_dlp_configured: boolean
   yt_dlp_cookies_set: boolean
   yt_dlp_browser_cookies_set: boolean
   playwright_configured: boolean
   ffmpeg_configured: boolean
+}
+
+export interface DailyReportSettings {
+  enabled: boolean
+  email: string
+  hour: number
+  timezone: string
+  max_items: number
 }
 
 export interface UserSettings {
@@ -80,10 +89,11 @@ export interface UserSettings {
   language: SummaryLanguage
   max_summary_chars: number
   filter_keywords: string[]
+  daily_report: DailyReportSettings
   runtime: SettingsRuntime
 }
 
 export type UserSettingsPatch = Partial<Pick<
   UserSettings,
-  'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords'
+'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords' | 'daily_report'
 >>

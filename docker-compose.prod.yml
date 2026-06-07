@@ -36,6 +36,12 @@ services:
       PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
       PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/usr/bin/chromium-browser}
       TELEGRAM_TOKEN: ${TELEGRAM_TOKEN}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-}
       DEFAULT_USER_ID: ${DEFAULT_USER_ID:-demo-user}
       WEB_DIR: ./web/dist
     volumes:
@@ -64,6 +70,13 @@ services:
       PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
       PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
       PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/usr/bin/chromium-browser}
+      SMTP_HOST: ${SMTP_HOST:-}
+      SMTP_PORT: ${SMTP_PORT:-587}
+      SMTP_USERNAME: ${SMTP_USERNAME:-}
+      SMTP_PASSWORD: ${SMTP_PASSWORD:-}
+      SMTP_FROM: ${SMTP_FROM:-}
+      SMTP_USE_TLS: ${SMTP_USE_TLS:-}
+      DEFAULT_USER_ID: ${DEFAULT_USER_ID:-demo-user}
     volumes:
       - ./secrets:/run/codo-secrets:ro
       - ./browser-profile:/run/codo-browser-profile:ro

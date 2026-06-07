@@ -1881,6 +1881,12 @@ select:focus-visible {
   gap: 10px;
 }
 
+.settings-triple {
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 108px;
+  gap: 10px;
+}
+
 .settings-field input,
 .keyword-composer input {
   width: 100%;
@@ -1903,6 +1909,7 @@ select:focus-visible {
 }
 
 .keywords-card,
+.daily-report-card,
 .runtime-card {
   grid-column: span 2;
 }
@@ -2362,6 +2369,7 @@ select:focus-visible {
 
   .settings-segmented.three,
   .settings-pair,
+  .settings-triple,
   .runtime-grid {
     grid-template-columns: 1fr;
   }
