@@ -13,6 +13,7 @@ import (
 	knowledgeapp "github.com/codo/codo/internal/application/knowledge"
 	"github.com/codo/codo/internal/application/pipeline"
 	dailyreport "github.com/codo/codo/internal/application/report"
+	"github.com/codo/codo/internal/application/sourcecheck"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
 	"github.com/codo/codo/internal/infra/fetcher"
@@ -57,6 +58,7 @@ func main() {
 
 	// run immediately on start
 	runRSS(ctx, st, router)
+	runChaoxing(ctx, st)
 	runDailyReport(ctx, reportService)
 	runEmbeddingBackfill(ctx, knowledgeService)
 
@@ -64,6 +66,7 @@ func main() {
 		select {
 		case <-tick.C:
 			runRSS(ctx, st, router)
+			runChaoxing(ctx, st)
 			runDailyReport(ctx, reportService)
 			runEmbeddingBackfill(ctx, knowledgeService)
 		case <-ctx.Done():
@@ -117,6 +120,29 @@ func runRSS(ctx context.Context, st *store.Store, router *pipeline.Router) {
 		}
 
 		_ = st.UpdateLastFetched(ctx, sub.ID)
+	}
+}
+
+func runChaoxing(ctx context.Context, st *store.Store) {
+	subs, err := st.ListActiveChaoxingSubscriptions(ctx)
+	if err != nil {
+		slog.Error("list chaoxing subs", "err", err)
+		return
+	}
+	if len(subs) == 0 {
+		return
+	}
+	slog.Info("chaoxing run", "subscriptions", len(subs))
+	service := sourcecheck.NewChaoxingService(st, &runtimeconfig.Notifier{Store: st}, nil)
+	for _, sub := range subs {
+		runCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+		result, err := service.Run(runCtx, sub)
+		cancel()
+		if err != nil {
+			slog.Warn("chaoxing fetch failed", "subscription", sub.ID, "err", err)
+			continue
+		}
+		slog.Info("chaoxing fetched", "subscription", sub.ID, "items", result.Items, "new_notified", result.NewNotified, "due_notified", result.DueNotified)
 	}
 }
 
