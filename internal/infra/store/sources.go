@@ -268,15 +268,15 @@ func (s *Store) UpsertSourceItem(ctx context.Context, input SourceItemInput) (So
 		return SourceItemRow{}, SourceItemChange{}, fmt.Errorf("source item missing required fields")
 	}
 
-	existing, err := s.getSourceItemByExternal(ctx, input.SubscriptionID, input.ItemType, input.ExternalID)
-	if err != nil && !isNoRows(err) {
-		return SourceItemRow{}, SourceItemChange{}, err
+	existing, lookupErr := s.getSourceItemByExternal(ctx, input.SubscriptionID, input.ItemType, input.ExternalID)
+	if lookupErr != nil && !isNoRows(lookupErr) {
+		return SourceItemRow{}, SourceItemChange{}, lookupErr
 	}
 	payload, err := json.Marshal(input.Payload)
 	if err != nil {
 		return SourceItemRow{}, SourceItemChange{}, fmt.Errorf("source item payload: %w", err)
 	}
-	created := isNoRows(err)
+	created := isNoRows(lookupErr)
 	dueChanged := !created && !sameOptionalTime(existing.DueAt, input.DueAt)
 	statusChanged := !created && existing.Status != input.Status
 	id := existing.ID
