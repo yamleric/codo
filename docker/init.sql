@@ -44,9 +44,12 @@ CREATE TABLE IF NOT EXISTS articles (
     url_hash    TEXT,
     title       TEXT NOT NULL DEFAULT '',
     source      TEXT NOT NULL,
+    content_type TEXT NOT NULL DEFAULT '',
     content     TEXT NOT NULL DEFAULT '',
     summary     TEXT NOT NULL DEFAULT '',
     category    TEXT NOT NULL DEFAULT '',
+    metadata    JSONB NOT NULL DEFAULT '{}',
+    published_at TIMESTAMPTZ,
     embedding   vector(1536),
     tags        TEXT[] DEFAULT '{}',
     created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -56,6 +59,8 @@ CREATE UNIQUE INDEX IF NOT EXISTS articles_url_hash_user ON articles(user_id, ur
 CREATE INDEX IF NOT EXISTS articles_embedding_idx ON articles USING hnsw (embedding vector_cosine_ops);
 CREATE INDEX IF NOT EXISTS tasks_category_user_idx ON tasks(user_id, category);
 CREATE INDEX IF NOT EXISTS articles_category_user_idx ON articles(user_id, category);
+CREATE INDEX IF NOT EXISTS articles_user_created_idx ON articles(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS articles_tags_gin_idx ON articles USING gin(tags);
 
 CREATE TABLE IF NOT EXISTS bookmarks (
     id             TEXT PRIMARY KEY,

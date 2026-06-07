@@ -56,6 +56,34 @@ export interface BookmarkImportResult {
   bookmarks: Bookmark[]
 }
 
+export interface Article {
+  id: string
+  user_id: string
+  task_id: string
+  url: string
+  title: string
+  source: string
+  content_type: string
+  summary: string
+  category: string
+  tags: string[]
+  metadata: Record<string, unknown>
+  published_at: string | null
+  created_at: string
+}
+
+export interface FacetRow {
+  name: string
+  count: number
+}
+
+export interface KnowledgeFacets {
+  total: number
+  categories: FacetRow[]
+  tags: FacetRow[]
+  sources: FacetRow[]
+}
+
 export type NotifyChannel = 'telegram' | 'none'
 export type NotifyPolicy = 'pass_only' | 'save_only'
 export type SummaryStyle = 'concise' | 'structured' | 'actionable'
@@ -95,5 +123,5 @@ export interface UserSettings {
 
 export type UserSettingsPatch = Partial<Pick<
   UserSettings,
-'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords' | 'daily_report'
+  'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords' | 'daily_report'
 >>

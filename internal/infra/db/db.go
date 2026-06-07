@@ -28,8 +28,19 @@ func Migrate(ctx context.Context, pool *pgxpool.Pool) error {
 		`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tasks ADD COLUMN IF NOT EXISTS tags TEXT[] DEFAULT '{}'`,
 		`ALTER TABLE articles ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN IF NOT EXISTS content_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE articles ADD COLUMN IF NOT EXISTS metadata JSONB NOT NULL DEFAULT '{}'::jsonb`,
+		`ALTER TABLE articles ADD COLUMN IF NOT EXISTS published_at TIMESTAMPTZ`,
+		`UPDATE articles
+		 SET content_type = tasks.content_type
+		 FROM tasks
+		 WHERE articles.task_id = tasks.id
+		   AND articles.content_type = ''
+		   AND tasks.content_type <> ''`,
 		`CREATE INDEX IF NOT EXISTS tasks_category_user_idx ON tasks(user_id, category)`,
 		`CREATE INDEX IF NOT EXISTS articles_category_user_idx ON articles(user_id, category)`,
+		`CREATE INDEX IF NOT EXISTS articles_user_created_idx ON articles(user_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS articles_tags_gin_idx ON articles USING gin(tags)`,
 		`CREATE TABLE IF NOT EXISTS bookmarks (
 			id             TEXT PRIMARY KEY,
 			user_id        TEXT NOT NULL REFERENCES users(id),

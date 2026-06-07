@@ -125,6 +125,7 @@
           @updated="loadTasks"
         />
 
+        <KnowledgeBase v-else-if="activeView === 'knowledge'" />
         <BookmarkManager v-else-if="activeView === 'bookmarks'" />
         <SettingsPanel v-else-if="activeView === 'settings'" />
         <SubscriptionManager v-else-if="activeView === 'sources'" />
@@ -137,6 +138,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   Activity,
+  BookOpen,
   Bookmark,
   CheckCircle2,
   CircleAlert,
@@ -152,12 +154,13 @@ import {
 import SubmitBar from './components/SubmitBar.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import BookmarkManager from './components/BookmarkManager.vue'
+import KnowledgeBase from './components/KnowledgeBase.vue'
 import SubscriptionManager from './components/SubscriptionManager.vue'
 import TaskList from './components/TaskList.vue'
 import { api } from './api'
 import type { Task } from './types'
 
-type View = 'overview' | 'tasks' | 'bookmarks' | 'sources' | 'settings'
+type View = 'overview' | 'tasks' | 'knowledge' | 'bookmarks' | 'sources' | 'settings'
 type ConnectionState = 'connecting' | 'connected' | 'offline'
 
 const tasks = ref<Task[]>([])
@@ -182,6 +185,7 @@ const stats = computed(() => {
 const navigation = computed(() => [
   { id: 'overview' as View, label: '概览', icon: LayoutDashboard },
   { id: 'tasks' as View, label: '任务', icon: ListTodo, count: tasks.value.length },
+  { id: 'knowledge' as View, label: '知识库', icon: BookOpen },
   { id: 'bookmarks' as View, label: '收藏', icon: Bookmark },
   { id: 'sources' as View, label: '订阅源', icon: Rss },
   { id: 'settings' as View, label: '设置', icon: SlidersHorizontal },
@@ -196,6 +200,9 @@ const viewMeta = computed(() => {
   }
   if (activeView.value === 'bookmarks') {
     return { eyebrow: 'BOOKMARK SYNC', title: '收藏夹', description: '导入收藏网址，并把待读链接同步到 Codo 的抓取总结流程。' }
+  }
+  if (activeView.value === 'knowledge') {
+    return { eyebrow: 'KNOWLEDGE BASE', title: '知识库', description: '按分类、标签和来源查看已经归档的内容摘要。' }
   }
   if (activeView.value === 'settings') {
     return { eyebrow: 'SYSTEM SETTINGS', title: '配置项设置', description: '调整通知、摘要与过滤偏好，查看运行能力状态。' }

@@ -534,7 +534,8 @@ select:focus-visible {
 .task-panel,
 .process-panel,
 .subscription-panel,
-.bookmark-panel {
+.bookmark-panel,
+.knowledge-panel {
   min-width: 0;
   background: var(--surface);
   border: 1px solid var(--line);
@@ -978,8 +979,16 @@ select:focus-visible {
   border-bottom: 1px solid var(--line);
 }
 
+.knowledge-summary-strip {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  background: #f7f9f6;
+  border-bottom: 1px solid var(--line);
+}
+
 .source-summary-strip article,
-.bookmark-summary-strip article {
+.bookmark-summary-strip article,
+.knowledge-summary-strip article {
   display: grid;
   min-width: 0;
   gap: 2px;
@@ -987,12 +996,14 @@ select:focus-visible {
 }
 
 .source-summary-strip article:not(:last-child),
-.bookmark-summary-strip article:not(:last-child) {
+.bookmark-summary-strip article:not(:last-child),
+.knowledge-summary-strip article:not(:last-child) {
   border-right: 1px solid var(--line);
 }
 
 .source-summary-strip strong,
-.bookmark-summary-strip strong {
+.bookmark-summary-strip strong,
+.knowledge-summary-strip strong {
   color: var(--ink);
   font-family: Georgia, "Noto Serif SC", serif;
   font-size: 19px;
@@ -1000,12 +1011,185 @@ select:focus-visible {
 }
 
 .source-summary-strip span,
-.bookmark-summary-strip span {
+.bookmark-summary-strip span,
+.knowledge-summary-strip span {
   overflow: hidden;
   color: var(--muted);
   font-size: 9px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.knowledge-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledge-search {
+  width: min(360px, 52%);
+}
+
+.knowledge-toolbar .filter-tabs button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.knowledge-layout {
+  display: grid;
+  grid-template-columns: 210px minmax(0, 1fr);
+  min-height: 420px;
+}
+
+.knowledge-facets {
+  display: grid;
+  align-content: start;
+  gap: 4px;
+  padding: 12px;
+  background: #f7f9f6;
+  border-right: 1px solid var(--line);
+}
+
+.knowledge-facets button {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  min-height: 32px;
+  padding: 0 8px;
+  color: var(--muted);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.knowledge-facets button:hover,
+.knowledge-facets button.active {
+  color: var(--green);
+  background: var(--surface-strong);
+  border-color: #c9e1d8;
+}
+
+.knowledge-facets span {
+  overflow: hidden;
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-facets strong {
+  min-width: 22px;
+  color: inherit;
+  font-size: 9px;
+  font-weight: 600;
+  text-align: right;
+}
+
+.knowledge-list {
+  display: grid;
+  align-content: start;
+}
+
+.knowledge-card {
+  display: grid;
+  gap: 8px;
+  padding: 15px 16px;
+}
+
+.knowledge-card:not(:last-child) {
+  border-bottom: 1px solid var(--line);
+}
+
+.knowledge-card header {
+  display: flex;
+  min-width: 0;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.knowledge-card header > div {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.knowledge-card header strong {
+  overflow: hidden;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.knowledge-card header span:not(.task-category) {
+  color: var(--faint);
+  font-size: 9px;
+}
+
+.knowledge-card p {
+  display: -webkit-box;
+  overflow: hidden;
+  margin: 0;
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1.7;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+}
+
+.knowledge-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.knowledge-card-footer a {
+  display: inline-flex;
+  height: 26px;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 5px;
+  padding: 0 8px;
+  color: var(--muted);
+  font-size: 9px;
+  text-decoration: none;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.knowledge-card-footer a:hover {
+  color: var(--green);
+  border-color: #9ebdb4;
+}
+
+.knowledge-card .task-tags button {
+  max-width: 100%;
+  padding: 2px 5px;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 8px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: #eef1ed;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.knowledge-card .task-tags button:hover {
+  color: var(--green);
+  border-color: #c9e1d8;
 }
 
 .bookmark-import {
@@ -2112,6 +2296,7 @@ select:focus-visible {
   }
 
   .keywords-card,
+  .daily-report-card,
   .runtime-card {
     grid-column: auto;
   }
@@ -2147,7 +2332,7 @@ select:focus-visible {
   }
 
   .primary-nav {
-    grid-template-columns: repeat(5, 1fr);
+    grid-template-columns: repeat(6, 1fr);
     gap: 5px;
   }
 
@@ -2160,7 +2345,7 @@ select:focus-visible {
   }
 
   .primary-nav button > span:nth-child(2) {
-    font-size: 9px;
+    font-size: 8px;
   }
 
   .nav-count {
@@ -2237,6 +2422,16 @@ select:focus-visible {
 
   .side-stack {
     grid-template-columns: 1fr;
+  }
+
+  .knowledge-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .knowledge-facets {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    border-right: 0;
+    border-bottom: 1px solid var(--line);
   }
 }
 
@@ -2327,8 +2522,34 @@ select:focus-visible {
 
   .source-form-meta,
   .source-summary-strip,
-  .bookmark-summary-strip {
+  .bookmark-summary-strip,
+  .knowledge-summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledge-toolbar {
+    display: grid;
+  }
+
+  .knowledge-toolbar .filter-tabs {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .knowledge-search {
+    width: 100%;
+  }
+
+  .knowledge-layout {
+    min-height: 320px;
+  }
+
+  .knowledge-card header,
+  .knowledge-card-footer {
+    display: grid;
+  }
+
+  .knowledge-card-footer a {
+    justify-self: start;
   }
 
   .bookmark-import,

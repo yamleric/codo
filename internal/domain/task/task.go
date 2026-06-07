@@ -66,22 +66,9 @@ type Classification struct {
 	Reason   string   `json:"reason,omitempty"`
 }
 
-var allowedCategories = map[string]struct{}{
-	"AI": {},
-	"技术": {},
-	"产品": {},
-	"商业": {},
-	"社会": {},
-	"学习": {},
-	"生活": {},
-	"娱乐": {},
-	"工具": {},
-	"其他": {},
-}
-
 func NormalizeClassification(c Classification) Classification {
-	c.Category = strings.TrimSpace(c.Category)
-	if _, ok := allowedCategories[c.Category]; !ok {
+	c.Category = truncateRunes(strings.TrimSpace(c.Category), 12)
+	if c.Category == "" {
 		c.Category = "其他"
 	}
 	c.Tags = normalizeTags(c.Tags)

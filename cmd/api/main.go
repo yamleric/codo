@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -502,6 +503,55 @@ func (s *server) runBookmark(userID string, bookmark store.BookmarkRow, taskID s
 	}()
 }
 
+// GET /api/articles?category=&tag=&q=&limit=
+func (s *server) articles(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	articles, err := s.st.ListArticles(r.Context(), userID, store.ArticleQuery{
+		Category: r.URL.Query().Get("category"),
+		Tag:      r.URL.Query().Get("tag"),
+		Query:    r.URL.Query().Get("q"),
+		Limit:    intQuery(r.URL.Query(), "limit", 50),
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(articles)
+}
+
+// GET /api/knowledge/facets
+func (s *server) knowledgeFacets(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	facets, err := s.st.KnowledgeFacets(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(facets)
+}
+
 type subscriptionPayload struct {
 	FeedURL  *string `json:"feed_url"`
 	Title    *string `json:"title"`
@@ -770,6 +820,8 @@ func main() {
 	mux.HandleFunc("/api/subscriptions/", srv.subscriptionByID)
 	mux.HandleFunc("/api/bookmarks", srv.bookmarks)
 	mux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
+	mux.HandleFunc("/api/articles", srv.articles)
+	mux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
 	mux.HandleFunc("/api/settings", srv.settings)
 	mux.HandleFunc("/ws", srv.wsHandler)
 	mux.Handle("/", http.FileServer(http.Dir(getenv("WEB_DIR", "./web/dist"))))
@@ -868,4 +920,16 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func intQuery(values url.Values, key string, fallback int) int {
+	raw := strings.TrimSpace(values.Get(key))
+	if raw == "" {
+		return fallback
+	}
+	value, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return value
 }

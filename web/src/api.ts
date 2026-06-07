@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Task, Subscription, Bookmark, BookmarkImportResult, UserSettings, UserSettingsPatch } from './types'
+import type { Article, Bookmark, BookmarkImportResult, KnowledgeFacets, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
 
 export const api = {
   submitUrl: (url: string) =>
@@ -40,6 +40,12 @@ export const api = {
 
   syncBookmarks: (ids?: string[]) =>
     axios.post<{ queued: number; task_ids: string[] }>('/api/bookmarks/sync', { ids: ids ?? [] }).then(r => r.data),
+
+  getArticles: (params?: { category?: string; tag?: string; q?: string; limit?: number }) =>
+    axios.get<Article[]>('/api/articles', { params }).then(r => r.data),
+
+  getKnowledgeFacets: () =>
+    axios.get<KnowledgeFacets>('/api/knowledge/facets').then(r => r.data),
 
   getSettings: () =>
     axios.get<UserSettings>('/api/settings').then(r => r.data),
