@@ -66,15 +66,16 @@ func (s *Store) AppendStep(ctx context.Context, taskID string, step task.Step) e
 func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 	hash := contentHash(t.URL)
 	_, err := s.db.Exec(ctx, `
-		INSERT INTO articles (id, user_id, task_id, url, url_hash, source, content, summary, category, tags, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,NOW())
+		INSERT INTO articles (id, user_id, task_id, url, url_hash, source, content_type, content, summary, category, tags, metadata, created_at)
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'{}'::jsonb,NOW())
 		ON CONFLICT (user_id, url_hash) WHERE url_hash IS NOT NULL DO UPDATE SET
-			summary    = EXCLUDED.summary,
-			content    = EXCLUDED.content,
-			category   = EXCLUDED.category,
-			tags       = EXCLUDED.tags`,
+			summary      = EXCLUDED.summary,
+			content      = EXCLUDED.content,
+			content_type = EXCLUDED.content_type,
+			category     = EXCLUDED.category,
+			tags         = EXCLUDED.tags`,
 		t.ID, t.UserID, t.ID, t.URL, hash,
-		string(t.Source), t.RawContent(), t.Summary(), t.Category(), t.Tags(),
+		string(t.Source), string(t.ContentType), t.RawContent(), t.Summary(), t.Category(), t.Tags(),
 	)
 	return err
 }
@@ -119,6 +120,213 @@ type StepRow struct {
 	Status     string `json:"status"`
 	Detail     string `json:"detail"`
 	DurationMs int64  `json:"duration_ms"`
+}
+
+// ── Knowledge base ───────────────────────────────────────────────────────────
+
+type ArticleRow struct {
+	ID          string         `json:"id"`
+	UserID      string         `json:"user_id"`
+	TaskID      string         `json:"task_id"`
+	URL         string         `json:"url"`
+	Title       string         `json:"title"`
+	Source      string         `json:"source"`
+	ContentType string         `json:"content_type"`
+	Summary     string         `json:"summary"`
+	Category    string         `json:"category"`
+	Tags        []string       `json:"tags"`
+	Metadata    map[string]any `json:"metadata"`
+	PublishedAt *time.Time     `json:"published_at"`
+	CreatedAt   time.Time      `json:"created_at"`
+}
+
+type ArticleQuery struct {
+	Category string
+	Tag      string
+	Query    string
+	Limit    int
+}
+
+type KnowledgeFacets struct {
+	Total      int        `json:"total"`
+	Categories []FacetRow `json:"categories"`
+	Tags       []FacetRow `json:"tags"`
+	Sources    []FacetRow `json:"sources"`
+}
+
+type FacetRow struct {
+	Name  string `json:"name"`
+	Count int    `json:"count"`
+}
+
+func (s *Store) ListArticles(ctx context.Context, userID string, query ArticleQuery) ([]ArticleRow, error) {
+	query = normalizeArticleQuery(query)
+	rows, err := s.db.Query(ctx, `
+		SELECT id,
+		       user_id,
+		       COALESCE(task_id, ''),
+		       COALESCE(url, ''),
+		       COALESCE(title, ''),
+		       source,
+		       COALESCE(content_type, ''),
+		       summary,
+		       COALESCE(category, ''),
+		       COALESCE(tags, '{}'::text[]),
+		       COALESCE(metadata, '{}'::jsonb)::text,
+		       published_at,
+		       created_at
+		FROM articles
+		WHERE user_id = $1
+		  AND ($2 = '' OR category = $2 OR ($2 = '未分类' AND category = ''))
+		  AND ($3 = '' OR $3 = ANY(tags))
+		  AND (
+		    $4 = ''
+		    OR url ILIKE '%' || $4 || '%'
+		    OR title ILIKE '%' || $4 || '%'
+		    OR summary ILIKE '%' || $4 || '%'
+		    OR category ILIKE '%' || $4 || '%'
+		    OR EXISTS (
+		      SELECT 1 FROM unnest(tags) AS tag(value)
+		      WHERE tag.value ILIKE '%' || $4 || '%'
+		    )
+		  )
+		ORDER BY COALESCE(published_at, created_at) DESC, created_at DESC
+		LIMIT $5`,
+		userID, query.Category, query.Tag, query.Query, query.Limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var articles []ArticleRow
+	for rows.Next() {
+		article, err := scanArticle(rows)
+		if err != nil {
+			return nil, err
+		}
+		articles = append(articles, article)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if articles == nil {
+		return []ArticleRow{}, nil
+	}
+	return articles, nil
+}
+
+func (s *Store) KnowledgeFacets(ctx context.Context, userID string) (KnowledgeFacets, error) {
+	var facets KnowledgeFacets
+	if err := s.db.QueryRow(ctx, `SELECT COUNT(*) FROM articles WHERE user_id = $1`, userID).Scan(&facets.Total); err != nil {
+		return facets, err
+	}
+	categories, err := s.facetRows(ctx, `
+		SELECT COALESCE(NULLIF(category, ''), '未分类') AS name, COUNT(*)::int
+		FROM articles
+		WHERE user_id = $1
+		GROUP BY name
+		ORDER BY COUNT(*) DESC, name ASC
+		LIMIT 80`, userID)
+	if err != nil {
+		return facets, err
+	}
+	tags, err := s.facetRows(ctx, `
+		SELECT tag.value AS name, COUNT(*)::int
+		FROM articles
+		CROSS JOIN LATERAL unnest(tags) AS tag(value)
+		WHERE user_id = $1 AND tag.value <> ''
+		GROUP BY tag.value
+		ORDER BY COUNT(*) DESC, tag.value ASC
+		LIMIT 80`, userID)
+	if err != nil {
+		return facets, err
+	}
+	sources, err := s.facetRows(ctx, `
+		SELECT COALESCE(NULLIF(source, ''), 'unknown') AS name, COUNT(*)::int
+		FROM articles
+		WHERE user_id = $1
+		GROUP BY name
+		ORDER BY COUNT(*) DESC, name ASC
+		LIMIT 20`, userID)
+	if err != nil {
+		return facets, err
+	}
+	facets.Categories = categories
+	facets.Tags = tags
+	facets.Sources = sources
+	return facets, nil
+}
+
+func normalizeArticleQuery(query ArticleQuery) ArticleQuery {
+	query.Category = strings.TrimSpace(query.Category)
+	query.Tag = strings.TrimSpace(query.Tag)
+	query.Query = strings.TrimSpace(query.Query)
+	if query.Limit <= 0 {
+		query.Limit = 50
+	}
+	if query.Limit > 100 {
+		query.Limit = 100
+	}
+	return query
+}
+
+func (s *Store) facetRows(ctx context.Context, sql string, args ...any) ([]FacetRow, error) {
+	rows, err := s.db.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var facets []FacetRow
+	for rows.Next() {
+		var facet FacetRow
+		if err := rows.Scan(&facet.Name, &facet.Count); err != nil {
+			return nil, err
+		}
+		facets = append(facets, facet)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if facets == nil {
+		return []FacetRow{}, nil
+	}
+	return facets, nil
+}
+
+func scanArticle(row scanner) (ArticleRow, error) {
+	var article ArticleRow
+	var rawMetadata string
+	var publishedAt pgtype.Timestamptz
+	err := row.Scan(
+		&article.ID,
+		&article.UserID,
+		&article.TaskID,
+		&article.URL,
+		&article.Title,
+		&article.Source,
+		&article.ContentType,
+		&article.Summary,
+		&article.Category,
+		&article.Tags,
+		&rawMetadata,
+		&publishedAt,
+		&article.CreatedAt,
+	)
+	if err != nil {
+		return article, err
+	}
+	if article.Tags == nil {
+		article.Tags = []string{}
+	}
+	article.Metadata = map[string]any{}
+	if strings.TrimSpace(rawMetadata) != "" {
+		_ = json.Unmarshal([]byte(rawMetadata), &article.Metadata)
+	}
+	if publishedAt.Valid {
+		t := publishedAt.Time
+		article.PublishedAt = &t
+	}
+	return article, nil
 }
 
 // ── Bookmarks ────────────────────────────────────────────────────────────────

@@ -48,12 +48,12 @@ func TestSnapshotJSONMatchesDashboardContract(t *testing.T) {
 
 func TestClassificationIsNormalized(t *testing.T) {
 	got := NormalizeClassification(Classification{
-		Category: "unknown",
+		Category: "政治",
 		Tags:     []string{" AI ", "AI", "", "一个特别特别特别长的标签"},
 		Reason:   strings.Repeat("原因", 60),
 	})
 
-	if got.Category != "其他" {
+	if got.Category != "政治" {
 		t.Fatalf("unexpected category: %q", got.Category)
 	}
 	if len(got.Tags) != 2 || got.Tags[0] != "AI" {
@@ -64,6 +64,13 @@ func TestClassificationIsNormalized(t *testing.T) {
 	}
 	if len([]rune(got.Reason)) > 80 {
 		t.Fatalf("reason was not truncated: %q", got.Reason)
+	}
+}
+
+func TestClassificationDefaultsBlankCategory(t *testing.T) {
+	got := NormalizeClassification(Classification{Category: "  "})
+	if got.Category != "其他" {
+		t.Fatalf("unexpected category: %q", got.Category)
 	}
 }
 

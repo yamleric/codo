@@ -201,8 +201,9 @@ model_calls (id, task_id, step, model, input_tokens, output_tokens,
              latency_ms, error, created_at)
 
 -- 知识库
-articles (id, user_id, url, title, source, content, summary,
-          embedding vector(1536), tags, created_at)
+articles (id, user_id, task_id, url, title, source, content_type,
+          content, summary, category, tags, metadata jsonb,
+          published_at, embedding vector(1536), created_at)
 
 -- 订阅源配置
 subscriptions (id, user_id, source_type, config jsonb,
@@ -216,6 +217,16 @@ users (id, telegram_id, filter_keywords, notify_channel,
 daily_reports (id, user_id, report_date, status, item_count,
                last_error, sent_at, created_at, updated_at)
 ```
+
+---
+
+## 知识库分类与标签
+
+`content_type` 只表示处理方式，例如 `webpage` / `video` / `email`；主题归属不再增加新的内容类型，而是写入 `articles.category` 和 `articles.tags`。
+
+例如用户提交政治新闻链接时，入口仍识别为 `webpage`，Pipeline 抓取正文并总结，然后分类器输出 `category=政治` 和若干短标签。前端知识库页通过 `/api/knowledge/facets` 聚合已有 `category/tags`，动态生成分类和标签筛选页，不需要提前写死“政治”“财经”“法律”等分类。
+
+`articles.metadata` 用于承载平台、作者、站点、封面等来源特有信息；只有稳定、高频、需要索引或排序的字段才单独加列，例如 `published_at`。
 
 ---
 
