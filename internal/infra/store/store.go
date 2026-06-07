@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/mail"
+	"strconv"
 	"strings"
 	"time"
 
@@ -65,7 +66,14 @@ func (s *Store) AppendStep(ctx context.Context, taskID string, step task.Step) e
 
 func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 	hash := contentHash(t.URL)
-	_, err := s.db.Exec(ctx, `
+	tx, err := s.db.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	var articleID string
+	err = tx.QueryRow(ctx, `
 		INSERT INTO articles (id, user_id, task_id, url, url_hash, source, content_type, content, summary, category, tags, metadata, created_at)
 		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'{}'::jsonb,NOW())
 		ON CONFLICT (user_id, url_hash) WHERE url_hash IS NOT NULL DO UPDATE SET
@@ -73,11 +81,18 @@ func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 			content      = EXCLUDED.content,
 			content_type = EXCLUDED.content_type,
 			category     = EXCLUDED.category,
-			tags         = EXCLUDED.tags`,
+			tags         = EXCLUDED.tags
+		RETURNING id`,
 		t.ID, t.UserID, t.ID, t.URL, hash,
 		string(t.Source), string(t.ContentType), t.RawContent(), t.Summary(), t.Category(), t.Tags(),
-	)
-	return err
+	).Scan(&articleID)
+	if err != nil {
+		return err
+	}
+	if err := replaceArticleChunks(ctx, tx, t.UserID, articleID, t.Summary(), t.RawContent()); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 func (s *Store) IsDuplicate(ctx context.Context, url string) (bool, error) {
@@ -327,6 +342,307 @@ func scanArticle(row scanner) (ArticleRow, error) {
 		article.PublishedAt = &t
 	}
 	return article, nil
+}
+
+type ArticleChunkInput struct {
+	Content       string
+	TokenEstimate int
+}
+
+type SearchChunkRow struct {
+	ChunkID     string
+	ArticleID   string
+	Title       string
+	URL         string
+	Source      string
+	ContentType string
+	Summary     string
+	Category    string
+	Tags        []string
+	Content     string
+	Score       float64
+	CreatedAt   time.Time
+}
+
+type ChunkEmbeddingRow struct {
+	ID      string
+	UserID  string
+	Content string
+}
+
+func BuildArticleChunks(summary, content string) []ArticleChunkInput {
+	parts := make([]string, 0, 2)
+	if summary = strings.TrimSpace(summary); summary != "" {
+		parts = append(parts, "摘要:\n"+summary)
+	}
+	if content = strings.TrimSpace(content); content != "" {
+		parts = append(parts, "正文:\n"+content)
+	}
+	body := strings.TrimSpace(strings.Join(parts, "\n\n"))
+	if body == "" {
+		return []ArticleChunkInput{}
+	}
+
+	const maxRunes = 1800
+	const overlapRunes = 160
+	const maxChunks = 80
+
+	runes := []rune(body)
+	chunks := make([]ArticleChunkInput, 0, minInt(maxChunks, len(runes)/maxRunes+1))
+	for start := 0; start < len(runes) && len(chunks) < maxChunks; {
+		end := minInt(len(runes), start+maxRunes)
+		text := strings.TrimSpace(string(runes[start:end]))
+		if text != "" {
+			chunks = append(chunks, ArticleChunkInput{
+				Content:       text,
+				TokenEstimate: estimateTokens(text),
+			})
+		}
+		if end >= len(runes) {
+			break
+		}
+		next := end - overlapRunes
+		if next <= start {
+			next = end
+		}
+		start = next
+	}
+	return chunks
+}
+
+func replaceArticleChunks(ctx context.Context, tx pgx.Tx, userID, articleID, summary, content string) error {
+	if _, err := tx.Exec(ctx, `DELETE FROM article_chunks WHERE user_id = $1 AND article_id = $2`, userID, articleID); err != nil {
+		return err
+	}
+	chunks := BuildArticleChunks(summary, content)
+	for index, chunk := range chunks {
+		id := fmt.Sprintf("%s:chunk:%03d", articleID, index)
+		if _, err := tx.Exec(ctx, `
+			INSERT INTO article_chunks (id, article_id, user_id, chunk_index, content, token_estimate, created_at, updated_at)
+			VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+			id, articleID, userID, index, chunk.Content, chunk.TokenEstimate); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) SearchArticleChunksKeyword(ctx context.Context, userID, query string, limit int) ([]SearchChunkRow, error) {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return []SearchChunkRow{}, nil
+	}
+	limit = normalizeSearchLimit(limit)
+	rows, err := s.db.Query(ctx, `
+		WITH params AS (SELECT $2::text AS q)
+		SELECT c.id,
+		       a.id,
+		       COALESCE(a.title, ''),
+		       COALESCE(a.url, ''),
+		       a.source,
+		       COALESCE(a.content_type, ''),
+		       a.summary,
+		       COALESCE(a.category, ''),
+		       COALESCE(a.tags, '{}'::text[]),
+		       c.content,
+		       (
+		         CASE WHEN lower(c.content) LIKE '%' || p.q || '%' THEN 0.55::double precision ELSE 0 END +
+		         CASE WHEN lower(COALESCE(a.title, '')) LIKE '%' || p.q || '%' THEN 0.24::double precision ELSE 0 END +
+		         CASE WHEN lower(a.summary) LIKE '%' || p.q || '%' THEN 0.20::double precision ELSE 0 END +
+		         CASE WHEN lower(COALESCE(a.category, '')) LIKE '%' || p.q || '%' THEN 0.12::double precision ELSE 0 END +
+		         CASE WHEN EXISTS (
+		           SELECT 1 FROM unnest(a.tags) AS tag(value)
+		           WHERE lower(tag.value) LIKE '%' || p.q || '%'
+		         ) THEN 0.12::double precision ELSE 0 END +
+		         GREATEST(
+		           similarity(lower(c.content), p.q),
+		           similarity(lower(COALESCE(a.title, '')), p.q),
+		           similarity(lower(a.summary), p.q)
+		         )::double precision * 0.35::double precision +
+		         LEAST(0.05::double precision, 86400.0::double precision / GREATEST(86400.0::double precision, EXTRACT(EPOCH FROM (NOW() - a.created_at))))
+		       )::double precision AS score,
+		       a.created_at
+		FROM article_chunks c
+		JOIN articles a ON a.id = c.article_id AND a.user_id = c.user_id
+		CROSS JOIN params p
+		WHERE c.user_id = $1
+		  AND (
+		    lower(c.content) LIKE '%' || p.q || '%'
+		    OR lower(COALESCE(a.title, '')) LIKE '%' || p.q || '%'
+		    OR lower(a.summary) LIKE '%' || p.q || '%'
+		    OR lower(COALESCE(a.category, '')) LIKE '%' || p.q || '%'
+		    OR EXISTS (
+		      SELECT 1 FROM unnest(a.tags) AS tag(value)
+		      WHERE lower(tag.value) LIKE '%' || p.q || '%'
+		    )
+		    OR similarity(lower(c.content), p.q) > 0.08
+		    OR similarity(lower(COALESCE(a.title, '')), p.q) > 0.08
+		    OR similarity(lower(a.summary), p.q) > 0.08
+		  )
+		ORDER BY score DESC, COALESCE(a.published_at, a.created_at) DESC
+		LIMIT $3`, userID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSearchChunkRows(rows)
+}
+
+func (s *Store) SearchArticleChunksVector(ctx context.Context, userID string, embedding []float32, limit int) ([]SearchChunkRow, error) {
+	vector, err := vectorLiteral(embedding)
+	if err != nil {
+		return nil, err
+	}
+	limit = normalizeSearchLimit(limit)
+	rows, err := s.db.Query(ctx, `
+		SELECT c.id,
+		       a.id,
+		       COALESCE(a.title, ''),
+		       COALESCE(a.url, ''),
+		       a.source,
+		       COALESCE(a.content_type, ''),
+		       a.summary,
+		       COALESCE(a.category, ''),
+		       COALESCE(a.tags, '{}'::text[]),
+		       c.content,
+		       (1 - (c.embedding <=> $2::vector))::double precision AS score,
+		       a.created_at
+		FROM article_chunks c
+		JOIN articles a ON a.id = c.article_id AND a.user_id = c.user_id
+		WHERE c.user_id = $1 AND c.embedding IS NOT NULL
+		ORDER BY c.embedding <=> $2::vector, COALESCE(a.published_at, a.created_at) DESC
+		LIMIT $3`, userID, vector, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	return scanSearchChunkRows(rows)
+}
+
+func (s *Store) ListChunksNeedingEmbedding(ctx context.Context, userID string, limit int) ([]ChunkEmbeddingRow, error) {
+	limit = normalizeSearchLimit(limit)
+	rows, err := s.db.Query(ctx, `
+		SELECT id, user_id, content
+		FROM article_chunks
+		WHERE user_id = $1 AND embedding IS NULL AND content <> ''
+		ORDER BY created_at DESC, chunk_index ASC
+		LIMIT $2`, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var chunks []ChunkEmbeddingRow
+	for rows.Next() {
+		var chunk ChunkEmbeddingRow
+		if err := rows.Scan(&chunk.ID, &chunk.UserID, &chunk.Content); err != nil {
+			return nil, err
+		}
+		chunks = append(chunks, chunk)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if chunks == nil {
+		return []ChunkEmbeddingRow{}, nil
+	}
+	return chunks, nil
+}
+
+func (s *Store) UpdateChunkEmbedding(ctx context.Context, userID, chunkID string, embedding []float32) error {
+	vector, err := vectorLiteral(embedding)
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `
+		UPDATE article_chunks
+		SET embedding = $3::vector,
+		    updated_at = NOW()
+		WHERE user_id = $1 AND id = $2`, userID, chunkID, vector)
+	return err
+}
+
+func scanSearchChunkRows(rows pgx.Rows) ([]SearchChunkRow, error) {
+	var results []SearchChunkRow
+	for rows.Next() {
+		var row SearchChunkRow
+		if err := rows.Scan(
+			&row.ChunkID,
+			&row.ArticleID,
+			&row.Title,
+			&row.URL,
+			&row.Source,
+			&row.ContentType,
+			&row.Summary,
+			&row.Category,
+			&row.Tags,
+			&row.Content,
+			&row.Score,
+			&row.CreatedAt,
+		); err != nil {
+			return nil, err
+		}
+		if row.Tags == nil {
+			row.Tags = []string{}
+		}
+		results = append(results, row)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if results == nil {
+		return []SearchChunkRow{}, nil
+	}
+	return results, nil
+}
+
+func vectorLiteral(values []float32) (string, error) {
+	const dimensions = 1536
+	if len(values) != dimensions {
+		return "", fmt.Errorf("embedding dimension %d does not match vector(%d)", len(values), dimensions)
+	}
+	var b strings.Builder
+	b.Grow(len(values) * 10)
+	b.WriteByte('[')
+	for i, value := range values {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.FormatFloat(float64(value), 'f', -1, 32))
+	}
+	b.WriteByte(']')
+	return b.String(), nil
+}
+
+func estimateTokens(text string) int {
+	runes := len([]rune(text))
+	if runes == 0 {
+		return 0
+	}
+	return maxInt(1, (runes+1)/2)
+}
+
+func normalizeSearchLimit(limit int) int {
+	if limit <= 0 {
+		return 20
+	}
+	if limit > 100 {
+		return 100
+	}
+	return limit
+}
+
+func minInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
+}
+
+func maxInt(a, b int) int {
+	if a > b {
+		return a
+	}
+	return b
 }
 
 // ── Bookmarks ────────────────────────────────────────────────────────────────

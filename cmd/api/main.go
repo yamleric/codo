@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/codo/codo/internal/application/ingest"
+	knowledgeapp "github.com/codo/codo/internal/application/knowledge"
 	"github.com/codo/codo/internal/application/pipeline"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
@@ -60,9 +62,10 @@ var upgrader = websocket.Upgrader{CheckOrigin: func(_ *http.Request) bool { retu
 // ── Server ────────────────────────────────────────────────────────────────────
 
 type server struct {
-	st     *store.Store
-	router *pipeline.Router
-	hub    *hub
+	st        *store.Store
+	router    *pipeline.Router
+	hub       *hub
+	knowledge *knowledgeapp.Service
 }
 
 func (s *server) onStatus(snap task.Snapshot) {
@@ -552,6 +555,77 @@ func (s *server) knowledgeFacets(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(facets)
 }
 
+// GET /api/search?q=&limit=
+func (s *server) searchKnowledge(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	query := strings.TrimSpace(r.URL.Query().Get("q"))
+	if query == "" {
+		http.Error(w, "missing q", http.StatusBadRequest)
+		return
+	}
+	if s.knowledge == nil {
+		http.Error(w, "knowledge service not configured", http.StatusServiceUnavailable)
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	result, err := s.knowledge.Search(r.Context(), userID, query, intQuery(r.URL.Query(), "limit", 20))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
+// POST /api/qa { question }
+func (s *server) knowledgeQA(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "POST,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	if s.knowledge == nil {
+		http.Error(w, "knowledge service not configured", http.StatusServiceUnavailable)
+		return
+	}
+	var body qaPayload
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
+	defer cancel()
+	result, err := s.knowledge.Answer(ctx, userID, body.Question)
+	if err != nil {
+		switch {
+		case errors.Is(err, knowledgeapp.ErrQuestionRequired):
+			http.Error(w, "question is required", http.StatusBadRequest)
+		case errors.Is(err, knowledgeapp.ErrLLMNotConfigured):
+			http.Error(w, "llm not configured", http.StatusServiceUnavailable)
+		default:
+			http.Error(w, err.Error(), http.StatusBadGateway)
+		}
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(result)
+}
+
 type subscriptionPayload struct {
 	FeedURL  *string `json:"feed_url"`
 	Title    *string `json:"title"`
@@ -577,6 +651,10 @@ type bookmarkSyncPayload struct {
 	IDs []string `json:"ids"`
 }
 
+type qaPayload struct {
+	Question string `json:"question"`
+}
+
 type settingsResponse struct {
 	UserID          string            `json:"user_id"`
 	NotifyChannel   string            `json:"notify_channel"`
@@ -591,6 +669,7 @@ type settingsResponse struct {
 
 type settingsRuntime struct {
 	LLMConfigured          bool `json:"llm_configured"`
+	EmbeddingConfigured    bool `json:"embedding_configured"`
 	ASRConfigured          bool `json:"asr_configured"`
 	TelegramConfigured     bool `json:"telegram_configured"`
 	EmailConfigured        bool `json:"email_configured"`
@@ -721,6 +800,7 @@ func runtimeSettings() settingsRuntime {
 	_, ffmpegErr := exec.LookPath(getenv("FFMPEG_BIN", "ffmpeg"))
 	return settingsRuntime{
 		LLMConfigured:          os.Getenv("LLM_API_KEY") != "",
+		EmbeddingConfigured:    embeddingConfiguredFromEnv(),
 		ASRConfigured:          os.Getenv("ASR_BASE_URL") != "" && os.Getenv("ASR_API_KEY") != "",
 		TelegramConfigured:     os.Getenv("TELEGRAM_TOKEN") != "",
 		EmailConfigured:        notify.EmailConfiguredFromEnv(),
@@ -730,6 +810,14 @@ func runtimeSettings() settingsRuntime {
 		PlaywrightConfigured:   playwrightAvailable(),
 		FFMPEGConfigured:       ffmpegErr == nil,
 	}
+}
+
+func embeddingConfiguredFromEnv() bool {
+	apiKey := strings.TrimSpace(os.Getenv("EMBEDDING_API_KEY"))
+	if apiKey == "" {
+		apiKey = strings.TrimSpace(os.Getenv("LLM_API_KEY"))
+	}
+	return apiKey != ""
 }
 
 func playwrightAvailable() bool {
@@ -776,13 +864,18 @@ func main() {
 		Model:       getenv("LLM_MODEL", "gpt-4o-mini"),
 		Preferences: st,
 	})
+	embeddingClient := llm.NewEmbeddingClient(llm.EmbeddingConfig{
+		BaseURL: getenv("EMBEDDING_BASE_URL", getenv("LLM_BASE_URL", "https://api.openai.com/v1")),
+		APIKey:  getenv("EMBEDDING_API_KEY", getenv("LLM_API_KEY", "")),
+		Model:   getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+	})
 
 	var notifier pipeline.Notifier = &logNotifier{}
 	if tg, err := notify.NewTelegram(); err == nil {
 		notifier = tg
 	}
 
-	srv := &server{st: st, hub: h}
+	srv := &server{st: st, hub: h, knowledge: knowledgeapp.NewService(st, llmClient, embeddingClient)}
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, notifier, srv.onStatus),
 		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, notifier, srv.onStatus),
@@ -822,6 +915,8 @@ func main() {
 	mux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
 	mux.HandleFunc("/api/articles", srv.articles)
 	mux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
+	mux.HandleFunc("/api/search", srv.searchKnowledge)
+	mux.HandleFunc("/api/qa", srv.knowledgeQA)
 	mux.HandleFunc("/api/settings", srv.settings)
 	mux.HandleFunc("/ws", srv.wsHandler)
 	mux.Handle("/", http.FileServer(http.Dir(getenv("WEB_DIR", "./web/dist"))))

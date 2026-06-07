@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Article, Bookmark, BookmarkImportResult, KnowledgeFacets, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
+import type { Article, Bookmark, BookmarkImportResult, KnowledgeFacets, QAResponse, SearchResponse, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
 
 export const api = {
   submitUrl: (url: string) =>
@@ -46,6 +46,12 @@ export const api = {
 
   getKnowledgeFacets: () =>
     axios.get<KnowledgeFacets>('/api/knowledge/facets').then(r => r.data),
+
+  searchKnowledge: (params: { q: string; limit?: number }) =>
+    axios.get<SearchResponse>('/api/search', { params }).then(r => r.data),
+
+  askKnowledge: (question: string) =>
+    axios.post<QAResponse>('/api/qa', { question }).then(r => r.data),
 
   getSettings: () =>
     axios.get<UserSettings>('/api/settings').then(r => r.data),

@@ -84,6 +84,49 @@ export interface KnowledgeFacets {
   sources: FacetRow[]
 }
 
+export interface SearchResult {
+  chunk_id: string
+  article_id: string
+  title: string
+  url: string
+  source: string
+  content_type: string
+  summary: string
+  category: string
+  tags: string[]
+  snippet: string
+  score: number
+  match: 'keyword' | 'semantic' | 'hybrid' | string
+  created_at: string
+}
+
+export interface SearchResponse {
+  query: string
+  mode: 'keyword' | 'hybrid' | string
+  semantic_available: boolean
+  results: SearchResult[]
+}
+
+export interface KnowledgeCitation {
+  index: number
+  article_id: string
+  chunk_id: string
+  title: string
+  url: string
+  source: string
+  content_type: string
+  category: string
+  tags: string[]
+  snippet: string
+}
+
+export interface QAResponse {
+  question: string
+  answer: string
+  mode: string
+  citations: KnowledgeCitation[]
+}
+
 export type NotifyChannel = 'telegram' | 'none'
 export type NotifyPolicy = 'pass_only' | 'save_only'
 export type SummaryStyle = 'concise' | 'structured' | 'actionable'
@@ -91,6 +134,7 @@ export type SummaryLanguage = 'zh-CN' | 'en'
 
 export interface SettingsRuntime {
   llm_configured: boolean
+  embedding_configured: boolean
   asr_configured: boolean
   telegram_configured: boolean
   email_configured: boolean

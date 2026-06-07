@@ -1,4 +1,5 @@
 CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 CREATE TABLE IF NOT EXISTS users (
     id          TEXT PRIMARY KEY,
@@ -61,6 +62,24 @@ CREATE INDEX IF NOT EXISTS tasks_category_user_idx ON tasks(user_id, category);
 CREATE INDEX IF NOT EXISTS articles_category_user_idx ON articles(user_id, category);
 CREATE INDEX IF NOT EXISTS articles_user_created_idx ON articles(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS articles_tags_gin_idx ON articles USING gin(tags);
+
+CREATE TABLE IF NOT EXISTS article_chunks (
+    id             TEXT PRIMARY KEY,
+    article_id     TEXT NOT NULL REFERENCES articles(id) ON DELETE CASCADE,
+    user_id        TEXT NOT NULL REFERENCES users(id),
+    chunk_index    INTEGER NOT NULL,
+    content        TEXT NOT NULL,
+    token_estimate INTEGER NOT NULL DEFAULT 0,
+    embedding      vector(1536),
+    created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (article_id, chunk_index)
+);
+
+CREATE INDEX IF NOT EXISTS article_chunks_user_article_idx ON article_chunks(user_id, article_id, chunk_index);
+CREATE INDEX IF NOT EXISTS article_chunks_user_created_idx ON article_chunks(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS article_chunks_content_trgm_idx ON article_chunks USING gin(content gin_trgm_ops);
+CREATE INDEX IF NOT EXISTS article_chunks_embedding_idx ON article_chunks USING hnsw (embedding vector_cosine_ops);
 
 CREATE TABLE IF NOT EXISTS bookmarks (
     id             TEXT PRIMARY KEY,

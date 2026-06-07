@@ -287,6 +287,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  SearchCheck,
   ShieldCheck,
   Terminal,
   X,
@@ -374,6 +375,7 @@ const runtimeItems = computed(() => {
   const runtime = settings.value?.runtime
   return [
     { label: 'LLM', detail: '过滤与摘要', configured: !!runtime?.llm_configured, icon: KeyRound },
+    { label: 'Embedding', detail: '知识检索', configured: !!runtime?.embedding_configured, icon: SearchCheck },
     { label: 'ASR', detail: '视频转写', configured: !!runtime?.asr_configured, icon: Mic },
     { label: 'Telegram', detail: '消息推送', configured: !!runtime?.telegram_configured, icon: MessageCircle },
     { label: 'SMTP', detail: '邮箱日报', configured: !!runtime?.email_configured, icon: Mail },
