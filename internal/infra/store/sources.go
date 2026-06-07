@@ -290,12 +290,12 @@ func (s *Store) UpsertSourceItem(ctx context.Context, input SourceItemInput) (So
 		)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
 		ON CONFLICT (subscription_id, item_type, external_id) DO UPDATE
-		SET course = $5,
-		    title = $6,
-		    status = $7,
-		    url = $8,
-		    due_at = $9,
-		    payload = $10::jsonb,
+		SET course = $7,
+		    title = $8,
+		    status = $9,
+		    url = $10,
+		    due_at = $11,
+		    payload = $12::jsonb,
 		    last_seen_at = NOW(),
 		    due_notified_at = CASE WHEN $13 THEN NULL ELSE source_items.due_notified_at END,
 		    updated_at = NOW()
