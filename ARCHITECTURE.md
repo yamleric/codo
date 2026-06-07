@@ -238,7 +238,7 @@ daily_reports (id, user_id, report_date, status, item_count,
 
 入库内容会在 `SaveKnowledgeItem` 后同步生成 `article_chunks`。搜索接口 `/api/search` 先使用 PostgreSQL 的 `pg_trgm` 在切片正文、标题、摘要、分类、标签中做关键词召回；如果配置了 embedding 服务，并且 scheduler 已经为切片补齐向量，则再用 `pgvector` 做语义召回并合并排序。
 
-问答接口 `/api/qa` 使用同一套召回结果构造 RAG 上下文，要求模型只依据引用片段回答。Embedding 配置来自服务器环境变量，默认可复用 LLM 的 base URL/key，也可以独立配置：
+问答接口 `/api/qa` 使用同一套召回结果构造 RAG 上下文，要求模型只依据引用片段回答。Embedding 配置来自服务器环境变量；为避免隐式请求和费用，只有显式设置 `EMBEDDING_API_KEY` 时才启用向量生成。`EMBEDDING_BASE_URL` 为空时可复用 `LLM_BASE_URL`：
 
 - `EMBEDDING_BASE_URL`
 - `EMBEDDING_API_KEY`
