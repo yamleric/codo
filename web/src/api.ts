@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Article, AuthStatus, Bookmark, BookmarkImportResult, KnowledgeFacets, QAResponse, SearchResponse, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
+import type { Article, AuthStatus, Bookmark, BookmarkImportResult, KnowledgeFacets, QAResponse, SearchResponse, SourceItem, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
 
 axios.defaults.withCredentials = true
 
@@ -68,6 +68,9 @@ export const api = {
 
   getArticles: (params?: { category?: string; tag?: string; q?: string; limit?: number }) =>
     axios.get<Article[]>('/api/articles', { params }).then(r => r.data),
+
+  getSourceItems: (params?: { source_type?: string; limit?: number }) =>
+    axios.get<SourceItem[]>('/api/source-items', { params }).then(r => r.data),
 
   getKnowledgeFacets: () =>
     axios.get<KnowledgeFacets>('/api/knowledge/facets').then(r => r.data),

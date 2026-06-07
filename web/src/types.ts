@@ -78,6 +78,27 @@ export interface Article {
   created_at: string
 }
 
+export interface SourceItem {
+  id: string
+  user_id: string
+  subscription_id: string
+  source_type: string
+  item_type: 'homework' | 'exam' | string
+  external_id: string
+  course: string
+  title: string
+  status: string
+  url: string
+  due_at: string | null
+  payload: Record<string, unknown>
+  first_seen_at: string
+  last_seen_at: string
+  new_notified_at: string | null
+  due_notified_at: string | null
+  created_at: string
+  updated_at: string
+}
+
 export interface FacetRow {
   name: string
   count: number
