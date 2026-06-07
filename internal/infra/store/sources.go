@@ -281,7 +281,7 @@ func (s *Store) UpsertSourceItem(ctx context.Context, input SourceItemInput) (So
 	statusChanged := !created && existing.Status != input.Status
 	id := existing.ID
 	if created {
-		id = fmt.Sprintf("source-item-%d", time.Now().UnixNano())
+		id = stableSourceItemID(input.SubscriptionID, input.ItemType, input.ExternalID)
 	}
 	row, err := scanSourceItem(s.db.QueryRow(ctx, `
 		INSERT INTO source_items (
@@ -628,4 +628,8 @@ func sameOptionalTime(a, b *time.Time) bool {
 func shortHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
 	return hex.EncodeToString(sum[:])[:16]
+}
+
+func stableSourceItemID(subscriptionID, itemType, externalID string) string {
+	return "source-item-" + shortHash(strings.Join([]string{subscriptionID, itemType, externalID}, "|"))
 }
