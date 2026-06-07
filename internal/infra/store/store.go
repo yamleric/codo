@@ -1022,7 +1022,7 @@ func DefaultDailyReport() DailyReport {
 
 func NormalizeUserSettings(settings UserSettings) UserSettings {
 	switch settings.NotifyChannel {
-	case "telegram", "none":
+	case "telegram", "email", "none":
 	default:
 		settings.NotifyChannel = "telegram"
 	}

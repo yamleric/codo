@@ -88,6 +88,17 @@ func TestApplySettingsPatchRejectsInvalidDailyReportEmail(t *testing.T) {
 	}
 }
 
+func TestApplySettingsPatchAcceptsEmailNotifyChannel(t *testing.T) {
+	channel := "email"
+	updated, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{NotifyChannel: &channel})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.NotifyChannel != "email" {
+		t.Fatalf("notify channel = %q, want email", updated.NotifyChannel)
+	}
+}
+
 func storeDefaultSettings() store.UserSettings {
 	return store.UserSettings{
 		UserID:         "demo-user",

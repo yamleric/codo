@@ -19,6 +19,10 @@ type Telegram struct {
 
 func NewTelegram() (*Telegram, error) {
 	token := os.Getenv("TELEGRAM_TOKEN")
+	return NewTelegramWithToken(token)
+}
+
+func NewTelegramWithToken(token string) (*Telegram, error) {
 	if token == "" {
 		return nil, fmt.Errorf("notify: TELEGRAM_TOKEN not set")
 	}

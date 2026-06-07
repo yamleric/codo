@@ -1,7 +1,21 @@
 import axios from 'axios'
-import type { Article, Bookmark, BookmarkImportResult, KnowledgeFacets, QAResponse, SearchResponse, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
+import type { Article, AuthStatus, Bookmark, BookmarkImportResult, KnowledgeFacets, QAResponse, SearchResponse, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
+
+axios.defaults.withCredentials = true
 
 export const api = {
+  authStatus: () =>
+    axios.get<AuthStatus>('/api/auth/status').then(r => r.data),
+
+  setupOwner: (payload: { username: string; password: string }) =>
+    axios.post<AuthStatus>('/api/auth/setup', payload).then(r => r.data),
+
+  login: (payload: { username: string; password: string }) =>
+    axios.post<AuthStatus>('/api/auth/login', payload).then(r => r.data),
+
+  logout: () =>
+    axios.post('/api/auth/logout'),
+
   submitUrl: (url: string) =>
     axios.post<{ id: string }>('/api/tasks', { url }).then(r => r.data),
 

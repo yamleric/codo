@@ -214,13 +214,29 @@ subscriptions (id, user_id, source_type, config jsonb,
                last_fetched_at, enabled, created_at)
 
 -- 用户配置（含过滤规则）
-users (id, telegram_id, filter_keywords, notify_channel,
-       model_policy jsonb, created_at)
+users (id, username, password_hash, auth_enabled, telegram_id,
+       filter_keywords, notify_channel, model_policy jsonb,
+       created_at, updated_at)
+
+-- 单人工作台 session
+auth_sessions (id, user_id, token_hash, expires_at,
+               created_at, last_seen_at)
+
+-- 实例级运行配置（LLM / Embedding / ASR / Telegram / SMTP）
+app_settings (key, value jsonb, updated_at)
 
 -- 日报发送记录（避免同一天重复发送）
 daily_reports (id, user_id, report_date, status, item_count,
                last_error, sent_at, created_at, updated_at)
 ```
+
+---
+
+## 单人鉴权与配置管理
+
+Codo 按单人单用设计，不维护角色、团队或复杂管理员系统。首次访问工作台时，如果 `DEFAULT_USER_ID` 对应用户还没有密码，会进入 owner setup，创建一个用户名和密码；之后所有 `/api/*` 与 `/ws` 都需要 `codo_session` HttpOnly Cookie。
+
+密钥类配置可以在前台设置页编辑，包括 LLM、Embedding、ASR、Telegram 和 SMTP。API 响应只返回 `*_configured` 状态，不回显真实 token、password 或 API key；前端密钥输入框保存后清空，后续只能替换。服务器环境变量仍作为兜底配置，数据库中的显式配置优先。
 
 ---
 
@@ -238,7 +254,7 @@ daily_reports (id, user_id, report_date, status, item_count,
 
 入库内容会在 `SaveKnowledgeItem` 后同步生成 `article_chunks`。搜索接口 `/api/search` 先使用 PostgreSQL 的 `pg_trgm` 在切片正文、标题、摘要、分类、标签中做关键词召回；如果配置了 embedding 服务，并且 scheduler 已经为切片补齐向量，则再用 `pgvector` 做语义召回并合并排序。
 
-问答接口 `/api/qa` 使用同一套召回结果构造 RAG 上下文，要求模型只依据引用片段回答。Embedding 配置来自服务器环境变量；为避免隐式请求和费用，只有显式设置 `EMBEDDING_API_KEY` 时才启用向量生成。`EMBEDDING_BASE_URL` 为空时可复用 `LLM_BASE_URL`：
+问答接口 `/api/qa` 使用同一套召回结果构造 RAG 上下文，要求模型只依据引用片段回答。Embedding 配置来自前台运行配置或服务器环境变量；为避免隐式请求和费用，只有显式设置 Embedding key 时才启用向量生成。`EMBEDDING_BASE_URL` 为空时可复用 `LLM_BASE_URL`：
 
 - `EMBEDDING_BASE_URL`
 - `EMBEDDING_API_KEY`
@@ -260,14 +276,7 @@ daily_reports (id, user_id, report_date, status, item_count,
 - 时区
 - 最大条目数
 
-SMTP 连接配置只来自服务器环境变量，不写入数据库，也不会返回给前台：
-
-- `SMTP_HOST`
-- `SMTP_PORT`
-- `SMTP_USERNAME`
-- `SMTP_PASSWORD`
-- `SMTP_FROM`
-- `SMTP_USE_TLS`
+SMTP 连接配置可在前台设置页维护，也可由服务器环境变量兜底。密码只允许写入或替换，接口不回显真实值。
 
 `daily_reports` 表使用 `(user_id, report_date)` 唯一约束记录 `sent` / `skipped` / `failed` 状态，确保同一天不会重复发送；失败状态允许后续 scheduler 周期重试。
 

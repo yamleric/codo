@@ -1,5 +1,15 @@
 <template>
-  <div class="app-shell">
+  <AuthPanel
+    v-if="!authLoading && (!authenticated || setupRequired)"
+    :setup-required="setupRequired"
+    @authenticated="onAuthenticated"
+  />
+
+  <main v-else-if="authLoading" class="auth-shell">
+    <div class="loading-row"><LoaderCircle :size="16" class="spinning" />检查登录状态</div>
+  </main>
+
+  <div v-else class="app-shell">
     <aside class="sidebar">
       <div class="brand">
         <span class="brand-mark"><Workflow :size="18" :stroke-width="2.2" /></span>
@@ -46,6 +56,7 @@
             <span class="live-dot" :class="connectionState"></span>
             {{ connectionLabel }}
           </span>
+          <span class="connection-pill">{{ username }}</span>
           <button
             type="button"
             class="icon-button"
@@ -54,6 +65,9 @@
             @click="loadTasks"
           >
             <RefreshCw :size="16" :class="{ spinning: refreshing }" />
+          </button>
+          <button type="button" class="icon-button" title="退出登录" @click="logout">
+            <LogOut :size="16" />
           </button>
         </div>
       </header>
@@ -145,6 +159,8 @@ import {
   Filter,
   LayoutDashboard,
   ListTodo,
+  LoaderCircle,
+  LogOut,
   RefreshCw,
   Rss,
   Send,
@@ -152,13 +168,14 @@ import {
   Workflow,
 } from '@lucide/vue'
 import SubmitBar from './components/SubmitBar.vue'
+import AuthPanel from './components/AuthPanel.vue'
 import SettingsPanel from './components/SettingsPanel.vue'
 import BookmarkManager from './components/BookmarkManager.vue'
 import KnowledgeBase from './components/KnowledgeBase.vue'
 import SubscriptionManager from './components/SubscriptionManager.vue'
 import TaskList from './components/TaskList.vue'
 import { api } from './api'
-import type { Task } from './types'
+import type { AuthStatus, Task } from './types'
 
 type View = 'overview' | 'tasks' | 'knowledge' | 'bookmarks' | 'sources' | 'settings'
 type ConnectionState = 'connecting' | 'connected' | 'offline'
@@ -168,6 +185,10 @@ const activeView = ref<View>('overview')
 const refreshing = ref(false)
 const loadError = ref('')
 const connectionState = ref<ConnectionState>('connecting')
+const authLoading = ref(true)
+const authenticated = ref(false)
+const setupRequired = ref(false)
+const username = ref('')
 
 const stats = computed(() => {
   const today = tasks.value.filter(task => isToday(task.created_at))
@@ -230,6 +251,7 @@ const pipelineStages = [
 ]
 
 async function loadTasks() {
+  if (!authenticated.value) return
   refreshing.value = true
   loadError.value = ''
   try {
@@ -245,11 +267,53 @@ function onSubmitted(_id: string) {
   loadTasks()
 }
 
+async function loadAuthStatus() {
+  authLoading.value = true
+  try {
+    const status = await api.authStatus()
+    applyAuthStatus(status)
+    if (authenticated.value) {
+      await loadTasks()
+      connectWS()
+    }
+  } catch {
+    authenticated.value = false
+    setupRequired.value = false
+  } finally {
+    authLoading.value = false
+  }
+}
+
+function onAuthenticated(status: AuthStatus) {
+  applyAuthStatus(status)
+  loadTasks()
+  connectWS()
+}
+
+function applyAuthStatus(status: AuthStatus) {
+  setupRequired.value = status.setup_required
+  authenticated.value = status.authenticated
+  username.value = status.username || 'owner'
+}
+
+async function logout() {
+  await api.logout()
+  stopped = true
+  if (reconnectTimer) window.clearTimeout(reconnectTimer)
+  ws?.close()
+  ws = null
+  tasks.value = []
+  authenticated.value = false
+  connectionState.value = 'offline'
+  stopped = false
+}
+
 let ws: WebSocket | null = null
 let reconnectTimer: number | undefined
 let stopped = false
 
 function connectWS() {
+  if (!authenticated.value) return
   connectionState.value = 'connecting'
   const proto = location.protocol === 'https:' ? 'wss' : 'ws'
   ws = new WebSocket(`${proto}://${location.host}/ws`)
@@ -280,8 +344,7 @@ function isToday(value: string) {
 }
 
 onMounted(() => {
-  loadTasks()
-  connectWS()
+  loadAuthStatus()
 })
 
 onUnmounted(() => {

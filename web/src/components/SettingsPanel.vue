@@ -30,7 +30,7 @@
 
         <label class="settings-field">
           <span>通知通道</span>
-          <div class="settings-segmented">
+          <div class="settings-segmented three">
             <button
               v-for="option in notifyChannelOptions"
               :key="option.value"
@@ -116,6 +116,102 @@
               max="1000"
               step="20"
             />
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-card runtime-config-card">
+        <header>
+          <span class="settings-card-icon"><KeyRound :size="16" /></span>
+          <div>
+            <strong>模型与语音</strong>
+            <small>密钥保存后不回显</small>
+          </div>
+        </header>
+
+        <div class="settings-service-grid">
+          <label class="settings-field">
+            <span>LLM Base URL</span>
+            <input v-model.trim="form.runtime_config.llm.base_url" type="url" placeholder="https://api.openai.com/v1" />
+          </label>
+          <label class="settings-field">
+            <span>LLM 模型</span>
+            <input v-model.trim="form.runtime_config.llm.model" type="text" placeholder="gpt-4o-mini" />
+          </label>
+          <label class="settings-field secret-field">
+            <span>LLM API Key · {{ keyState(settings?.runtime_config?.llm?.key_configured) }}</span>
+            <input v-model.trim="form.runtime_config.llm.api_key" type="password" placeholder="输入后替换当前密钥" autocomplete="new-password" />
+          </label>
+
+          <label class="settings-field">
+            <span>Embedding Base URL</span>
+            <input v-model.trim="form.runtime_config.embedding.base_url" type="url" placeholder="默认复用 LLM Base URL" />
+          </label>
+          <label class="settings-field">
+            <span>Embedding 模型</span>
+            <input v-model.trim="form.runtime_config.embedding.model" type="text" placeholder="text-embedding-3-small" />
+          </label>
+          <label class="settings-field secret-field">
+            <span>Embedding Key · {{ keyState(settings?.runtime_config?.embedding?.key_configured) }}</span>
+            <input v-model.trim="form.runtime_config.embedding.api_key" type="password" placeholder="输入后启用语义检索" autocomplete="new-password" />
+          </label>
+
+          <label class="settings-field">
+            <span>ASR Base URL</span>
+            <input v-model.trim="form.runtime_config.asr.base_url" type="url" placeholder="语音转写接口地址" />
+          </label>
+          <label class="settings-field">
+            <span>ASR 模型</span>
+            <input v-model.trim="form.runtime_config.asr.model" type="text" placeholder="whisper-1" />
+          </label>
+          <label class="settings-field secret-field">
+            <span>ASR API Key · {{ keyState(settings?.runtime_config?.asr?.key_configured) }}</span>
+            <input v-model.trim="form.runtime_config.asr.api_key" type="password" placeholder="输入后替换当前密钥" autocomplete="new-password" />
+          </label>
+        </div>
+      </section>
+
+      <section class="settings-card runtime-config-card">
+        <header>
+          <span class="settings-card-icon"><MessageCircle :size="16" /></span>
+          <div>
+            <strong>推送渠道</strong>
+            <small>Telegram 与 SMTP 可在网页端维护</small>
+          </div>
+        </header>
+
+        <div class="settings-service-grid">
+          <label class="settings-field secret-field">
+            <span>Telegram Token · {{ keyState(settings?.runtime_config?.telegram?.token_configured) }}</span>
+            <input v-model.trim="form.runtime_config.telegram.token" type="password" placeholder="输入后替换 Bot Token" autocomplete="new-password" />
+          </label>
+          <label class="settings-field">
+            <span>Telegram Chat ID</span>
+            <input v-model.trim="form.runtime_config.telegram.chat_id" type="text" placeholder="推送目标 chat id" />
+          </label>
+          <label class="settings-field">
+            <span>SMTP Host</span>
+            <input v-model.trim="form.runtime_config.smtp.host" type="text" placeholder="smtp.example.com" />
+          </label>
+          <label class="settings-field">
+            <span>SMTP Port</span>
+            <input v-model.number="form.runtime_config.smtp.port" type="number" min="1" max="65535" step="1" />
+          </label>
+          <label class="settings-field">
+            <span>SMTP Username</span>
+            <input v-model.trim="form.runtime_config.smtp.username" type="text" placeholder="name@example.com" />
+          </label>
+          <label class="settings-field secret-field">
+            <span>SMTP Password · {{ keyState(settings?.runtime_config?.smtp?.password_configured) }}</span>
+            <input v-model.trim="form.runtime_config.smtp.password" type="password" placeholder="输入后替换当前密码" autocomplete="new-password" />
+          </label>
+          <label class="settings-field">
+            <span>SMTP From</span>
+            <input v-model.trim="form.runtime_config.smtp.from" type="email" placeholder="Codo <name@example.com>" />
+          </label>
+          <label class="settings-field settings-toggle">
+            <span>直接 TLS</span>
+            <input v-model="form.runtime_config.smtp.use_tls" type="checkbox" />
           </label>
         </div>
       </section>
@@ -298,6 +394,7 @@ import type {
   NotifyPolicy,
   SummaryLanguage,
   SummaryStyle,
+  RuntimeConfigPatch,
   UserSettings,
   UserSettingsPatch,
 } from '../types'
@@ -315,6 +412,13 @@ interface SettingsForm {
     hour: number
     timezone: string
     max_items: number
+  }
+  runtime_config: {
+    llm: { base_url: string; model: string; api_key: string }
+    embedding: { base_url: string; model: string; api_key: string }
+    asr: { base_url: string; model: string; api_key: string }
+    telegram: { token: string; chat_id: string }
+    smtp: { host: string; port: number; username: string; password: string; from: string; use_tls: boolean }
   }
 }
 
@@ -341,10 +445,12 @@ const form = reactive<SettingsForm>({
     timezone: 'Asia/Shanghai',
     max_items: 20,
   },
+  runtime_config: emptyRuntimeConfigForm(),
 })
 
 const notifyChannelOptions = [
   { value: 'telegram' as const, label: 'Telegram', icon: Bell },
+  { value: 'email' as const, label: 'Email', icon: Mail },
   { value: 'none' as const, label: '不推送', icon: BellOff },
 ]
 
@@ -418,6 +524,7 @@ async function save() {
       max_summary_chars: form.max_summary_chars,
       filter_keywords: form.filter_keywords,
       daily_report: form.daily_report,
+      runtime_config: runtimeConfigPatchFromForm(),
     }
     const next = await api.updateSettings(payload)
     hydrate(next)
@@ -447,6 +554,7 @@ function hydrate(next: UserSettings) {
     timezone: 'Asia/Shanghai',
     max_items: 20,
   })
+  form.runtime_config = runtimeConfigFormFromSettings(next)
   original.value = serializeForm()
 }
 
@@ -481,7 +589,106 @@ function serializeForm() {
     max_summary_chars: Number.isFinite(form.max_summary_chars) ? Math.round(form.max_summary_chars) : 300,
     filter_keywords: normalizeKeywords(form.filter_keywords),
     daily_report: normalizeDailyReport(form.daily_report),
+    runtime_config: normalizeRuntimeConfigForm(form.runtime_config),
   })
+}
+
+function runtimeConfigFormFromSettings(next: UserSettings): SettingsForm['runtime_config'] {
+  const runtime = next.runtime_config
+  return {
+    llm: {
+      base_url: runtime?.llm?.base_url || '',
+      model: runtime?.llm?.model || '',
+      api_key: '',
+    },
+    embedding: {
+      base_url: runtime?.embedding?.base_url || '',
+      model: runtime?.embedding?.model || '',
+      api_key: '',
+    },
+    asr: {
+      base_url: runtime?.asr?.base_url || '',
+      model: runtime?.asr?.model || '',
+      api_key: '',
+    },
+    telegram: {
+      token: '',
+      chat_id: runtime?.telegram?.chat_id || '',
+    },
+    smtp: {
+      host: runtime?.smtp?.host || '',
+      port: runtime?.smtp?.port || 587,
+      username: runtime?.smtp?.username || '',
+      password: '',
+      from: runtime?.smtp?.from || '',
+      use_tls: !!runtime?.smtp?.use_tls,
+    },
+  }
+}
+
+function emptyRuntimeConfigForm(): SettingsForm['runtime_config'] {
+  return {
+    llm: { base_url: '', model: '', api_key: '' },
+    embedding: { base_url: '', model: '', api_key: '' },
+    asr: { base_url: '', model: '', api_key: '' },
+    telegram: { token: '', chat_id: '' },
+    smtp: { host: '', port: 587, username: '', password: '', from: '', use_tls: false },
+  }
+}
+
+function normalizeRuntimeConfigForm(config: SettingsForm['runtime_config']): SettingsForm['runtime_config'] {
+  return {
+    llm: normalizeServiceKeyForm(config.llm),
+    embedding: normalizeServiceKeyForm(config.embedding),
+    asr: normalizeServiceKeyForm(config.asr),
+    telegram: {
+      token: (config.telegram.token || '').trim(),
+      chat_id: (config.telegram.chat_id || '').trim(),
+    },
+    smtp: {
+      host: (config.smtp.host || '').trim(),
+      port: clampPort(config.smtp.port),
+      username: (config.smtp.username || '').trim(),
+      password: (config.smtp.password || '').trim(),
+      from: (config.smtp.from || '').trim(),
+      use_tls: !!config.smtp.use_tls,
+    },
+  }
+}
+
+function normalizeServiceKeyForm(config: { base_url: string; model: string; api_key: string }) {
+  return {
+    base_url: (config.base_url || '').trim(),
+    model: (config.model || '').trim(),
+    api_key: (config.api_key || '').trim(),
+  }
+}
+
+function runtimeConfigPatchFromForm(): RuntimeConfigPatch {
+  const config = normalizeRuntimeConfigForm(form.runtime_config)
+  const patch: RuntimeConfigPatch = {
+    llm: { base_url: config.llm.base_url, model: config.llm.model },
+    embedding: { base_url: config.embedding.base_url, model: config.embedding.model },
+    asr: { base_url: config.asr.base_url, model: config.asr.model },
+    telegram: { chat_id: config.telegram.chat_id },
+    smtp: {
+      host: config.smtp.host,
+      port: config.smtp.port,
+      username: config.smtp.username,
+      from: config.smtp.from,
+      use_tls: config.smtp.use_tls,
+    },
+  }
+  if (config.llm.api_key) patch.llm!.api_key = config.llm.api_key
+  if (config.embedding.api_key) patch.embedding!.api_key = config.embedding.api_key
+  if (config.asr.api_key) patch.asr!.api_key = config.asr.api_key
+  if (config.telegram.token) patch.telegram!.token = config.telegram.token
+  if (config.smtp.password) patch.smtp!.password = config.smtp.password
+  return patch
+}
+
+function keyState(configured?: boolean) {
+  return configured ? '已配置' : '未配置'
 }
 
 function normalizeKeywords(values: string[]) {
@@ -521,6 +728,11 @@ function clampReportHour(value: number) {
 function clampReportMaxItems(value: number) {
   const numeric = Number.isFinite(value) ? value : 20
   return Math.min(80, Math.max(1, Math.round(numeric)))
+}
+
+function clampPort(value: number) {
+  const numeric = Number.isFinite(value) ? value : 587
+  return Math.min(65535, Math.max(1, Math.round(numeric)))
 }
 
 onMounted(load)

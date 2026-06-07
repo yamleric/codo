@@ -127,7 +127,14 @@ export interface QAResponse {
   citations: KnowledgeCitation[]
 }
 
-export type NotifyChannel = 'telegram' | 'none'
+export interface AuthStatus {
+  setup_required: boolean
+  authenticated: boolean
+  user_id: string
+  username: string
+}
+
+export type NotifyChannel = 'telegram' | 'email' | 'none'
 export type NotifyPolicy = 'pass_only' | 'save_only'
 export type SummaryStyle = 'concise' | 'structured' | 'actionable'
 export type SummaryLanguage = 'zh-CN' | 'en'
@@ -143,6 +150,42 @@ export interface SettingsRuntime {
   yt_dlp_browser_cookies_set: boolean
   playwright_configured: boolean
   ffmpeg_configured: boolean
+}
+
+export interface ServiceKeyConfig {
+  base_url: string
+  model: string
+  key_configured: boolean
+}
+
+export interface TelegramRuntimeConfig {
+  chat_id: string
+  token_configured: boolean
+}
+
+export interface SMTPRuntimeConfig {
+  host: string
+  port: number
+  username: string
+  from: string
+  use_tls: boolean
+  password_configured: boolean
+}
+
+export interface RuntimeConfig {
+  llm: ServiceKeyConfig
+  embedding: ServiceKeyConfig
+  asr: ServiceKeyConfig
+  telegram: TelegramRuntimeConfig
+  smtp: SMTPRuntimeConfig
+}
+
+export interface RuntimeConfigPatch {
+  llm?: Partial<{ base_url: string; model: string; api_key: string }>
+  embedding?: Partial<{ base_url: string; model: string; api_key: string }>
+  asr?: Partial<{ base_url: string; model: string; api_key: string }>
+  telegram?: Partial<{ token: string; chat_id: string }>
+  smtp?: Partial<{ host: string; port: number; username: string; password: string; from: string; use_tls: boolean }>
 }
 
 export interface DailyReportSettings {
@@ -163,9 +206,12 @@ export interface UserSettings {
   filter_keywords: string[]
   daily_report: DailyReportSettings
   runtime: SettingsRuntime
+  runtime_config: RuntimeConfig
 }
 
 export type UserSettingsPatch = Partial<Pick<
   UserSettings,
   'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords' | 'daily_report'
->>
+>> & {
+  runtime_config?: RuntimeConfigPatch
+}
