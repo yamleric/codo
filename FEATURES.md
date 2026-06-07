@@ -37,11 +37,11 @@
 
 <table border="1" cellpadding="8" cellspacing="0">
   <tr><th>项目</th><th>说明</th></tr>
-  <tr><td>需求</td><td>自动检测新作业和截止日期，邮件 + 推送双渠道提醒</td></tr>
-  <tr><td>授权方式</td><td>Playwright 扫码登录，保存登录态</td></tr>
-  <tr><td>检测频率</td><td>每天定时检测一次</td></tr>
+  <tr><td>需求</td><td>自动检测新作业、新考试和截止日期，到期前主动提醒</td></tr>
+  <tr><td>授权方式</td><td>在订阅源管理里配置学习通账号密码，或使用 Cookie 作为兜底授权；密钥只写入不回显</td></tr>
+  <tr><td>检测频率</td><td>Scheduler 启动时立即检查，之后按 30 分钟间隔巡检；前台支持手动测试并刷新</td></tr>
   <tr><td>提醒时机</td><td>发现新作业立即提醒；截止前 24 小时再次提醒</td></tr>
-  <tr><td>通知渠道</td><td>Telegram 推送 + 发送邮件</td></tr>
+  <tr><td>通知渠道</td><td>复用工作台通知渠道：Telegram、Email 或关闭通知</td></tr>
 </table>
 
 ---

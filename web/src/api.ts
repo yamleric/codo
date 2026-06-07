@@ -28,10 +28,21 @@ export const api = {
   getSubscriptions: () =>
     axios.get<Subscription[]>('/api/subscriptions').then(r => r.data),
 
-  addSubscription: (payload: { feed_url: string; title?: string; category?: string }) =>
+  addSubscription: (payload: {
+    source_type?: 'rss' | 'chaoxing'
+    feed_url?: string
+    title?: string
+    category?: string
+    account?: string
+    password?: string
+    cookie?: string
+    alert_hours?: number
+    notify_new?: boolean
+    notify_due?: boolean
+  }) =>
     axios.post<{ id: string }>('/api/subscriptions', payload).then(r => r.data),
 
-  updateSubscription: (id: string, payload: Partial<Pick<Subscription, 'feed_url' | 'title' | 'category' | 'enabled'>>) =>
+  updateSubscription: (id: string, payload: Partial<Pick<Subscription, 'feed_url' | 'title' | 'category' | 'enabled' | 'account' | 'alert_hours' | 'notify_new' | 'notify_due'>> & { password?: string; cookie?: string }) =>
     axios.patch(`/api/subscriptions/${id}`, payload),
 
   deleteSubscription: (id: string) =>

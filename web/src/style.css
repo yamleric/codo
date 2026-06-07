@@ -1866,18 +1866,85 @@ select:focus-visible {
   font-weight: 600;
 }
 
-.source-form > div:first-of-type {
+.source-type-tabs {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+}
+
+.source-type-tabs button {
+  display: inline-flex;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 9px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+}
+
+.source-type-tabs button.active {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #c9e1d8;
+}
+
+.source-input-row {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 30px;
   gap: 5px;
 }
 
-.source-form input {
+.source-form input,
+.source-cookie-input {
   min-width: 0;
-  height: 31px;
   padding: 0 8px;
   font-size: 9px;
   border-radius: 4px;
+}
+
+.source-form input {
+  height: 31px;
+}
+
+.source-cookie-input {
+  width: 100%;
+  min-height: 46px;
+  padding: 7px 8px;
+  resize: vertical;
+}
+
+.source-form-grid,
+.source-form-options {
+  display: grid;
+  gap: 5px;
+}
+
+.source-form-grid {
+  grid-template-columns: minmax(0, 1fr) 118px;
+}
+
+.source-form-options {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.source-form-options label {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  color: var(--muted);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 4px;
+}
+
+.source-form-options input {
+  width: 13px;
+  height: 13px;
+  accent-color: var(--green);
 }
 
 .source-form-meta {
@@ -2209,9 +2276,11 @@ select:focus-visible {
 }
 
 .source-edit-dialog input[type="text"],
-.source-edit-dialog input[type="url"] {
+.source-edit-dialog input[type="url"],
+.source-edit-dialog input[type="password"],
+.source-edit-dialog input[type="number"],
+.source-edit-dialog textarea {
   width: 100%;
-  height: 34px;
   padding: 0 9px;
   color: var(--ink);
   font-size: 11px;
@@ -2221,9 +2290,44 @@ select:focus-visible {
   outline: 0;
 }
 
-.source-edit-dialog input:focus {
+.source-edit-dialog input[type="text"],
+.source-edit-dialog input[type="url"],
+.source-edit-dialog input[type="password"],
+.source-edit-dialog input[type="number"] {
+  height: 34px;
+}
+
+.source-edit-dialog textarea {
+  min-height: 54px;
+  padding: 8px 9px;
+  resize: vertical;
+}
+
+.source-edit-dialog input:focus,
+.source-edit-dialog textarea:focus {
   border-color: #6b9b8e;
   box-shadow: 0 0 0 3px rgb(23 107 91 / 8%);
+}
+
+.source-edit-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 120px;
+  gap: 8px;
+}
+
+.source-credential-state {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.source-credential-state span {
+  padding: 4px 7px;
+  color: var(--faint);
+  font-size: 8px;
+  background: #f3f5f2;
+  border: 1px solid var(--line);
+  border-radius: 4px;
 }
 
 .source-check {
@@ -2873,10 +2977,18 @@ select:focus-visible {
   }
 
   .source-form-meta,
+  .source-form-grid,
+  .source-form-options,
   .source-summary-strip,
   .bookmark-summary-strip,
   .knowledge-summary-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .source-form-grid,
+  .source-form-options,
+  .source-edit-grid {
+    grid-template-columns: 1fr;
   }
 
   .knowledge-toolbar {

@@ -27,6 +27,30 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
     <td>微信公众号文章类型识别、验证页检测、元数据与多种正文容器提取策略</td>
     <td>作为实现参考；Codo 使用 Go + goquery 独立实现，不引入 Python 运行时</td>
   </tr>
+  <tr>
+    <td><a href="https://github.com/LuckyTain/SuperStarInfoFetch">SuperStarInfoFetch</a></td>
+    <td>GPL-3.0</td>
+    <td>学习通课程、作业、考试字段抽象，以及剩余时间 / 有效性过滤思路</td>
+    <td>仅作为实现参考；Codo 未复制源码，未作为依赖引入</td>
+  </tr>
+  <tr>
+    <td><a href="https://github.com/songhahaha66/chaoxing_qq_notification">chaoxing_qq_notification</a></td>
+    <td>未明确标注</td>
+    <td>学习通作业入库、状态更新、临近截止提醒和前后端分离流程</td>
+    <td>仅作为产品流程参考；Codo 使用 Go + PostgreSQL 独立实现</td>
+  </tr>
+  <tr>
+    <td><a href="https://github.com/Gngzs/xxt-unwork-push">xxt-unwork-push</a></td>
+    <td>未明确标注</td>
+    <td>每日未完成作业汇总和 24 小时内截止提醒策略</td>
+    <td>仅作为提醒策略参考；不引入代码</td>
+  </tr>
+  <tr>
+    <td><a href="https://github.com/xsk666/xxt_work_notice">xxt_work_notice</a></td>
+    <td>README 标注禁止商业使用</td>
+    <td>学习通作业、考试列表接口和最小提醒脚本结构</td>
+    <td>仅作为接口形态参考；不引入代码</td>
+  </tr>
 </table>
 
 ---
@@ -40,7 +64,7 @@ Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下
   <tr><td>网页抓取</td><td><a href="https://codeberg.org/readeck/go-readability">readeck/go-readability</a></td><td>网页正文提取</td></tr>
   <tr><td>浏览器抓取</td><td><a href="https://github.com/playwright-community/playwright-go">playwright-community/playwright-go</a></td><td>知乎等 JS 渲染页面的浏览器自动化抓取</td></tr>
   <tr><td>安全清洗</td><td><a href="https://github.com/microcosm-cc/bluemonday">microcosm-cc/bluemonday</a></td><td>HTML 安全清洗，入库 / 展示前 sanitize</td></tr>
-  <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取</td></tr>
+  <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取和学习通作业 / 考试列表解析</td></tr>
   <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>B站 / 抖音公开视频元数据、字幕和音频下载；cookies 文件和浏览器 cookies 来源配置</td></tr>
   <tr><td>视频授权态参考</td><td><a href="https://github.com/mikf/gallery-dl">gallery-dl/gallery-dl</a></td><td>参考其显式 cookies / browser cookies 配置模式，不作为运行依赖</td></tr>
   <tr><td>音频处理</td><td><a href="https://github.com/FFmpeg/FFmpeg">FFmpeg/FFmpeg</a></td><td>视频音频提取、转码和 ASR 切片</td></tr>

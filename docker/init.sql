@@ -149,6 +149,33 @@ CREATE TABLE IF NOT EXISTS subscriptions (
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX IF NOT EXISTS subscriptions_user_source_idx ON subscriptions(user_id, source_type, enabled);
+
+CREATE TABLE IF NOT EXISTS source_items (
+    id              TEXT PRIMARY KEY,
+    user_id         TEXT NOT NULL REFERENCES users(id),
+    subscription_id TEXT NOT NULL REFERENCES subscriptions(id) ON DELETE CASCADE,
+    source_type     TEXT NOT NULL,
+    item_type       TEXT NOT NULL,
+    external_id     TEXT NOT NULL,
+    course          TEXT NOT NULL DEFAULT '',
+    title           TEXT NOT NULL DEFAULT '',
+    status          TEXT NOT NULL DEFAULT '',
+    url             TEXT NOT NULL DEFAULT '',
+    due_at          TIMESTAMPTZ,
+    payload         JSONB NOT NULL DEFAULT '{}'::jsonb,
+    first_seen_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    new_notified_at TIMESTAMPTZ,
+    due_notified_at TIMESTAMPTZ,
+    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    UNIQUE (subscription_id, item_type, external_id)
+);
+
+CREATE INDEX IF NOT EXISTS source_items_user_source_idx ON source_items(user_id, source_type, last_seen_at DESC);
+CREATE INDEX IF NOT EXISTS source_items_subscription_due_idx ON source_items(subscription_id, due_at);
+
 INSERT INTO users (id)
 VALUES ('demo-user')
 ON CONFLICT (id) DO NOTHING;

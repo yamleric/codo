@@ -19,6 +19,7 @@ import (
 	"github.com/codo/codo/internal/application/ingest"
 	knowledgeapp "github.com/codo/codo/internal/application/knowledge"
 	"github.com/codo/codo/internal/application/pipeline"
+	"github.com/codo/codo/internal/application/sourcecheck"
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
 	"github.com/codo/codo/internal/infra/fetcher"
@@ -26,6 +27,7 @@ import (
 	"github.com/codo/codo/internal/infra/sources"
 	"github.com/codo/codo/internal/infra/store"
 	"github.com/gorilla/websocket"
+	"github.com/jackc/pgx/v5"
 )
 
 // ── WebSocket hub ─────────────────────────────────────────────────────────────
@@ -220,8 +222,8 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// GET /api/subscriptions — list RSS subscriptions
-// POST /api/subscriptions — add RSS subscription { feed_url, title?, category? }
+// GET /api/subscriptions — list subscriptions
+// POST /api/subscriptions — add RSS or Chaoxing subscription
 func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -232,7 +234,7 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	userID := defaultUserID()
 	switch r.Method {
 	case http.MethodGet:
-		subs, err := s.st.ListRSSSubscriptions(r.Context(), userID)
+		subs, err := s.st.ListSubscriptions(r.Context(), userID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -241,18 +243,33 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(subs)
 	case http.MethodPost:
 		var body subscriptionPayload
-		if err := json.NewDecoder(r.Body).Decode(&body); err != nil || body.FeedURL == nil {
-			http.Error(w, "invalid feed_url", http.StatusBadRequest)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
-		feedURL, err := normalizeFeedURL(*body.FeedURL)
-		if err != nil {
-			http.Error(w, "invalid feed_url", http.StatusBadRequest)
+		sourceType := subscriptionSourceType(body)
+		var id string
+		var err error
+		switch sourceType {
+		case "rss":
+			if body.FeedURL == nil {
+				http.Error(w, "invalid feed_url", http.StatusBadRequest)
+				return
+			}
+			feedURL, normalizeErr := normalizeFeedURL(*body.FeedURL)
+			if normalizeErr != nil {
+				http.Error(w, "invalid feed_url", http.StatusBadRequest)
+				return
+			}
+			id, err = s.st.AddRSSSubscription(r.Context(), userID, feedURL, stringValue(body.Title), stringValue(body.Category))
+		case "chaoxing":
+			id, err = s.st.AddChaoxingSubscription(r.Context(), userID, chaoxingInputFromPayload(body, nil))
+		default:
+			http.Error(w, "invalid source_type", http.StatusBadRequest)
 			return
 		}
-		id, err := s.st.AddRSSSubscription(r.Context(), userID, feedURL, stringValue(body.Title), stringValue(body.Category))
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), statusFromStoreError(err))
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -262,9 +279,9 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// PATCH /api/subscriptions/:id — update RSS subscription
-// DELETE /api/subscriptions/:id — delete RSS subscription
-// POST /api/subscriptions/:id/refresh — fetch new RSS items now
+// PATCH /api/subscriptions/:id — update subscription
+// DELETE /api/subscriptions/:id — delete subscription
+// POST /api/subscriptions/:id/refresh — fetch subscription items now
 func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -297,7 +314,7 @@ func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodPatch:
-		existing, err := s.st.GetRSSSubscription(r.Context(), userID, id)
+		existing, err := s.st.GetSourceSubscription(r.Context(), userID, id)
 		if err != nil {
 			http.Error(w, "subscription not found", http.StatusNotFound)
 			return
@@ -307,34 +324,45 @@ func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "invalid payload", http.StatusBadRequest)
 			return
 		}
-		feedURL := existing.FeedURL
-		if body.FeedURL != nil {
-			normalized, err := normalizeFeedURL(*body.FeedURL)
-			if err != nil {
-				http.Error(w, "invalid feed_url", http.StatusBadRequest)
+		switch existing.SourceType {
+		case "rss":
+			feedURL := existing.FeedURL
+			if body.FeedURL != nil {
+				normalized, err := normalizeFeedURL(*body.FeedURL)
+				if err != nil {
+					http.Error(w, "invalid feed_url", http.StatusBadRequest)
+					return
+				}
+				feedURL = normalized
+			}
+			title := existing.Title
+			if body.Title != nil {
+				title = *body.Title
+			}
+			category := existing.Category
+			if body.Category != nil {
+				category = *body.Category
+			}
+			enabled := existing.Enabled
+			if body.Enabled != nil {
+				enabled = *body.Enabled
+			}
+			if err := s.st.UpdateRSSSubscription(r.Context(), userID, id, feedURL, title, category, enabled); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
 				return
 			}
-			feedURL = normalized
-		}
-		title := existing.Title
-		if body.Title != nil {
-			title = *body.Title
-		}
-		category := existing.Category
-		if body.Category != nil {
-			category = *body.Category
-		}
-		enabled := existing.Enabled
-		if body.Enabled != nil {
-			enabled = *body.Enabled
-		}
-		if err := s.st.UpdateRSSSubscription(r.Context(), userID, id, feedURL, title, category, enabled); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+		case "chaoxing":
+			if err := s.st.UpdateChaoxingSubscription(r.Context(), userID, id, chaoxingInputFromPayload(body, existing)); err != nil {
+				http.Error(w, err.Error(), statusFromStoreError(err))
+				return
+			}
+		default:
+			http.Error(w, "unsupported subscription type", http.StatusBadRequest)
 			return
 		}
 		w.WriteHeader(http.StatusNoContent)
 	case http.MethodDelete:
-		if err := s.st.DeleteRSSSubscription(r.Context(), userID, id); err != nil {
+		if err := s.st.DeleteSubscription(r.Context(), userID, id); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -345,6 +373,29 @@ func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) refreshSubscription(w http.ResponseWriter, r *http.Request, userID, id string) {
+	generic, err := s.st.GetSourceSubscription(r.Context(), userID, id)
+	if err != nil {
+		http.Error(w, "subscription not found", http.StatusNotFound)
+		return
+	}
+	if generic.SourceType == "chaoxing" {
+		sub, err := s.st.GetChaoxingSubscription(r.Context(), userID, id)
+		if err != nil {
+			http.Error(w, "subscription not found", http.StatusNotFound)
+			return
+		}
+		runCtx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
+		defer cancel()
+		result, err := sourcecheck.NewChaoxingService(s.st, &runtimeconfig.Notifier{Store: s.st}, nil).Run(runCtx, *sub)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+
 	sub, err := s.st.GetRSSSubscription(r.Context(), userID, id)
 	if err != nil {
 		http.Error(w, "subscription not found", http.StatusNotFound)
@@ -644,10 +695,17 @@ func (s *server) knowledgeQA(w http.ResponseWriter, r *http.Request) {
 }
 
 type subscriptionPayload struct {
-	FeedURL  *string `json:"feed_url"`
-	Title    *string `json:"title"`
-	Category *string `json:"category"`
-	Enabled  *bool   `json:"enabled"`
+	SourceType *string `json:"source_type"`
+	FeedURL    *string `json:"feed_url"`
+	Title      *string `json:"title"`
+	Category   *string `json:"category"`
+	Enabled    *bool   `json:"enabled"`
+	Account    *string `json:"account"`
+	Password   *string `json:"password"`
+	Cookie     *string `json:"cookie"`
+	AlertHours *int    `json:"alert_hours"`
+	NotifyNew  *bool   `json:"notify_new"`
+	NotifyDue  *bool   `json:"notify_due"`
 }
 
 type bookmarkPayload struct {
@@ -939,6 +997,71 @@ func taskTimeout(contentType task.ContentType) time.Duration {
 	return 5 * time.Minute
 }
 
+func subscriptionSourceType(body subscriptionPayload) string {
+	if body.SourceType == nil {
+		return "rss"
+	}
+	value := strings.TrimSpace(*body.SourceType)
+	if value == "" {
+		return "rss"
+	}
+	return value
+}
+
+func chaoxingInputFromPayload(body subscriptionPayload, existing *store.SourceSubscriptionRow) store.ChaoxingSubscriptionInput {
+	input := store.ChaoxingSubscriptionInput{
+		Title:      stringValue(body.Title),
+		Category:   stringValue(body.Category),
+		Account:    stringValue(body.Account),
+		Password:   rawStringValue(body.Password),
+		Cookie:     rawStringValue(body.Cookie),
+		NotifyNew:  body.NotifyNew,
+		NotifyDue:  body.NotifyDue,
+		Enabled:    body.Enabled,
+		AlertHours: 24,
+	}
+	if body.AlertHours != nil {
+		input.AlertHours = *body.AlertHours
+	} else if existing != nil && existing.AlertHours > 0 {
+		input.AlertHours = existing.AlertHours
+	}
+	if existing != nil {
+		if body.Title == nil {
+			input.Title = existing.Title
+		}
+		if body.Category == nil {
+			input.Category = existing.Category
+		}
+		if body.Account == nil {
+			input.Account = existing.Account
+		}
+		if body.NotifyNew == nil {
+			value := existing.NotifyNew
+			input.NotifyNew = &value
+		}
+		if body.NotifyDue == nil {
+			value := existing.NotifyDue
+			input.NotifyDue = &value
+		}
+		if body.Enabled == nil {
+			value := existing.Enabled
+			input.Enabled = &value
+		}
+	}
+	return input
+}
+
+func statusFromStoreError(err error) int {
+	if errors.Is(err, pgx.ErrNoRows) {
+		return http.StatusNotFound
+	}
+	message := err.Error()
+	if strings.Contains(message, "required") || strings.Contains(message, "must be between") || strings.Contains(message, "invalid") {
+		return http.StatusBadRequest
+	}
+	return http.StatusInternalServerError
+}
+
 func normalizeFeedURL(input string) (string, error) {
 	raw := strings.TrimSpace(input)
 	if raw == "" {
@@ -1004,6 +1127,13 @@ func stringValue(value *string) string {
 		return ""
 	}
 	return strings.TrimSpace(*value)
+}
+
+func rawStringValue(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return *value
 }
 
 func intQuery(values url.Values, key string, fallback int) int {
