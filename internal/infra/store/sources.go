@@ -269,37 +269,27 @@ func (s *Store) UpsertSourceItem(ctx context.Context, input SourceItemInput) (So
 	}
 
 	existing, err := s.getSourceItemByExternal(ctx, input.SubscriptionID, input.ItemType, input.ExternalID)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
+	if err != nil && !isNoRows(err) {
 		return SourceItemRow{}, SourceItemChange{}, err
 	}
 	payload, err := json.Marshal(input.Payload)
 	if err != nil {
 		return SourceItemRow{}, SourceItemChange{}, fmt.Errorf("source item payload: %w", err)
 	}
-	if errors.Is(err, pgx.ErrNoRows) {
-		id := fmt.Sprintf("source-item-%d", time.Now().UnixNano())
-		row, err := scanSourceItem(s.db.QueryRow(ctx, `
-			INSERT INTO source_items (
-				id, user_id, subscription_id, source_type, item_type, external_id,
-				course, title, status, url, due_at, payload
-			)
-			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
-			RETURNING id, user_id, subscription_id, source_type, item_type, external_id,
-			          course, title, status, url, due_at, payload,
-			          first_seen_at, last_seen_at, new_notified_at, due_notified_at,
-			          created_at, updated_at`,
-			id, input.UserID, input.SubscriptionID, input.SourceType, input.ItemType, input.ExternalID,
-			input.Course, input.Title, input.Status, input.URL, input.DueAt, payload))
-		if err != nil {
-			return SourceItemRow{}, SourceItemChange{}, err
-		}
-		return row, SourceItemChange{Created: true}, nil
+	created := isNoRows(err)
+	dueChanged := !created && !sameOptionalTime(existing.DueAt, input.DueAt)
+	statusChanged := !created && existing.Status != input.Status
+	id := existing.ID
+	if created {
+		id = fmt.Sprintf("source-item-%d", time.Now().UnixNano())
 	}
-
-	dueChanged := !sameOptionalTime(existing.DueAt, input.DueAt)
-	statusChanged := existing.Status != input.Status
 	row, err := scanSourceItem(s.db.QueryRow(ctx, `
-		UPDATE source_items
+		INSERT INTO source_items (
+			id, user_id, subscription_id, source_type, item_type, external_id,
+			course, title, status, url, due_at, payload
+		)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+		ON CONFLICT (subscription_id, item_type, external_id) DO UPDATE
 		SET course = $5,
 		    title = $6,
 		    status = $7,
@@ -307,19 +297,18 @@ func (s *Store) UpsertSourceItem(ctx context.Context, input SourceItemInput) (So
 		    due_at = $9,
 		    payload = $10::jsonb,
 		    last_seen_at = NOW(),
-		    due_notified_at = CASE WHEN $11 THEN NULL ELSE due_notified_at END,
+		    due_notified_at = CASE WHEN $13 THEN NULL ELSE source_items.due_notified_at END,
 		    updated_at = NOW()
-		WHERE subscription_id = $1 AND item_type = $2 AND external_id = $3 AND user_id = $4
 		RETURNING id, user_id, subscription_id, source_type, item_type, external_id,
 		          course, title, status, url, due_at, payload,
 		          first_seen_at, last_seen_at, new_notified_at, due_notified_at,
 		          created_at, updated_at`,
-		input.SubscriptionID, input.ItemType, input.ExternalID, input.UserID,
+		id, input.UserID, input.SubscriptionID, input.SourceType, input.ItemType, input.ExternalID,
 		input.Course, input.Title, input.Status, input.URL, input.DueAt, payload, dueChanged))
 	if err != nil {
-		return SourceItemRow{}, SourceItemChange{}, err
+		return SourceItemRow{}, SourceItemChange{}, fmt.Errorf("upsert source item: %w", err)
 	}
-	return row, SourceItemChange{StatusChanged: statusChanged, DueChanged: dueChanged}, nil
+	return row, SourceItemChange{Created: created, StatusChanged: statusChanged, DueChanged: dueChanged}, nil
 }
 
 func (s *Store) ListSourceItems(ctx context.Context, userID, sourceType string, limit int) ([]SourceItemRow, error) {
@@ -623,6 +612,10 @@ func parseOptionalTime(value string) *time.Time {
 		return &t
 	}
 	return nil
+}
+
+func isNoRows(err error) bool {
+	return errors.Is(err, pgx.ErrNoRows) || (err != nil && err.Error() == "no rows in result set")
 }
 
 func sameOptionalTime(a, b *time.Time) bool {
