@@ -16,8 +16,7 @@ import (
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
 	"github.com/codo/codo/internal/infra/fetcher"
-	"github.com/codo/codo/internal/infra/llm"
-	"github.com/codo/codo/internal/infra/notify"
+	"github.com/codo/codo/internal/infra/runtimeconfig"
 	"github.com/codo/codo/internal/infra/sources"
 	"github.com/codo/codo/internal/infra/store"
 )
@@ -37,21 +36,12 @@ func main() {
 	}
 
 	st := store.New(pool)
-	llmClient := llm.NewClient(llm.Config{
-		BaseURL:     getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
-		APIKey:      getenv("LLM_API_KEY", ""),
-		Model:       getenv("LLM_MODEL", "gpt-4o-mini"),
-		Preferences: st,
-	})
-	embeddingClient := llm.NewEmbeddingClient(llm.EmbeddingConfig{
-		BaseURL: getenv("EMBEDDING_BASE_URL", getenv("LLM_BASE_URL", "https://api.openai.com/v1")),
-		APIKey:  os.Getenv("EMBEDDING_API_KEY"),
-		Model:   getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-	})
+	llmClient := &runtimeconfig.LLM{Store: st}
+	embeddingClient := &runtimeconfig.Embedder{Store: st}
 
 	router, err := pipeline.NewRouter(
-		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, &logNotifier{}, nil),
-		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, &logNotifier{}, nil),
+		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, &runtimeconfig.Notifier{Store: st}, nil),
+		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, &runtimeconfig.Notifier{Store: st}, nil),
 	)
 	if err != nil {
 		slog.Error("router init", "err", err)
@@ -131,13 +121,7 @@ func runRSS(ctx context.Context, st *store.Store, router *pipeline.Router) {
 }
 
 func dailyReportService(st *store.Store) *dailyreport.Service {
-	email, err := notify.NewEmailFromEnv()
-	if err != nil {
-		slog.Info("daily report email disabled", "configured", notify.EmailConfiguredFromEnv())
-		return dailyreport.NewService(st, nil)
-	}
-	slog.Info("daily report email enabled")
-	return dailyreport.NewService(st, email)
+	return dailyreport.NewService(st, &runtimeconfig.EmailSender{Store: st})
 }
 
 func runDailyReport(ctx context.Context, service *dailyreport.Service) {

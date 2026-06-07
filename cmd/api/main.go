@@ -22,8 +22,7 @@ import (
 	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/db"
 	"github.com/codo/codo/internal/infra/fetcher"
-	"github.com/codo/codo/internal/infra/llm"
-	"github.com/codo/codo/internal/infra/notify"
+	"github.com/codo/codo/internal/infra/runtimeconfig"
 	"github.com/codo/codo/internal/infra/sources"
 	"github.com/codo/codo/internal/infra/store"
 	"github.com/gorilla/websocket"
@@ -88,7 +87,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 	}
 	contentType := ingest.DetectContentType(normalizedURL)
 
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	id := fmt.Sprintf("task-%d", time.Now().UnixMilli())
 	t := task.New(id, userID, task.SourceManual, contentType, normalizedURL, "")
 
@@ -106,7 +105,7 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 
 // GET /api/tasks
 func (s *server) listTasks(w http.ResponseWriter, r *http.Request) {
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	tasks, err := s.st.ListTasks(r.Context(), userID, 50)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -127,7 +126,7 @@ func (s *server) retryTask(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	newID := fmt.Sprintf("task-%d", time.Now().UnixMilli())
 	t := task.New(newID, userID, task.SourceType(existing.Source),
 		task.ContentType(existing.ContentType), existing.URL, "")
@@ -152,7 +151,7 @@ func (s *server) settings(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	current, err := s.st.GetUserSettings(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -161,8 +160,9 @@ func (s *server) settings(w http.ResponseWriter, r *http.Request) {
 
 	switch r.Method {
 	case http.MethodGet:
+		config := runtimeconfig.Resolved(r.Context(), s.st)
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(settingsResponseFromStore(current))
+		json.NewEncoder(w).Encode(settingsResponseFromStore(current, config))
 	case http.MethodPatch:
 		var body settingsPatch
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -178,8 +178,25 @@ func (s *server) settings(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		appConfig, err := s.st.GetAppConfig(r.Context())
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		appConfig, err = applyRuntimeConfigPatch(appConfig, body.RuntimeConfig)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if body.RuntimeConfig != nil {
+			if err := s.st.SaveAppConfig(r.Context(), appConfig); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		resolvedConfig := store.MergeAppConfig(appConfig, runtimeconfig.FromEnv())
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(settingsResponseFromStore(updated))
+		json.NewEncoder(w).Encode(settingsResponseFromStore(updated, resolvedConfig))
 	default:
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 	}
@@ -212,7 +229,7 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	switch r.Method {
 	case http.MethodGet:
 		subs, err := s.st.ListRSSSubscriptions(r.Context(), userID)
@@ -263,7 +280,7 @@ func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := parts[0]
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 
 	if len(parts) == 2 && parts[1] == "refresh" {
 		if r.Method != http.MethodPost {
@@ -383,7 +400,7 @@ func (s *server) bookmarks(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	switch r.Method {
 	case http.MethodGet:
 		bookmarks, err := s.st.ListBookmarks(r.Context(), userID)
@@ -426,7 +443,7 @@ func (s *server) bookmarkByID(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodOptions {
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	path := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/bookmarks/"), "/")
 	if path == "sync" {
 		if r.Method != http.MethodPost {
@@ -518,7 +535,7 @@ func (s *server) articles(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	articles, err := s.st.ListArticles(r.Context(), userID, store.ArticleQuery{
 		Category: r.URL.Query().Get("category"),
 		Tag:      r.URL.Query().Get("tag"),
@@ -545,7 +562,7 @@ func (s *server) knowledgeFacets(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	facets, err := s.st.KnowledgeFacets(r.Context(), userID)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -576,7 +593,7 @@ func (s *server) searchKnowledge(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "knowledge service not configured", http.StatusServiceUnavailable)
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	result, err := s.knowledge.Search(r.Context(), userID, query, intQuery(r.URL.Query(), "limit", 20))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -607,7 +624,7 @@ func (s *server) knowledgeQA(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid payload", http.StatusBadRequest)
 		return
 	}
-	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	userID := defaultUserID()
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Minute)
 	defer cancel()
 	result, err := s.knowledge.Answer(ctx, userID, body.Question)
@@ -656,15 +673,16 @@ type qaPayload struct {
 }
 
 type settingsResponse struct {
-	UserID          string            `json:"user_id"`
-	NotifyChannel   string            `json:"notify_channel"`
-	NotifyPolicy    string            `json:"notify_policy"`
-	SummaryStyle    string            `json:"summary_style"`
-	Language        string            `json:"language"`
-	MaxSummaryChars int               `json:"max_summary_chars"`
-	FilterKeywords  []string          `json:"filter_keywords"`
-	DailyReport     store.DailyReport `json:"daily_report"`
-	Runtime         settingsRuntime   `json:"runtime"`
+	UserID          string                `json:"user_id"`
+	NotifyChannel   string                `json:"notify_channel"`
+	NotifyPolicy    string                `json:"notify_policy"`
+	SummaryStyle    string                `json:"summary_style"`
+	Language        string                `json:"language"`
+	MaxSummaryChars int                   `json:"max_summary_chars"`
+	FilterKeywords  []string              `json:"filter_keywords"`
+	DailyReport     store.DailyReport     `json:"daily_report"`
+	Runtime         settingsRuntime       `json:"runtime"`
+	RuntimeConfig   runtimeConfigResponse `json:"runtime_config"`
 }
 
 type settingsRuntime struct {
@@ -681,13 +699,14 @@ type settingsRuntime struct {
 }
 
 type settingsPatch struct {
-	NotifyChannel   *string           `json:"notify_channel"`
-	NotifyPolicy    *string           `json:"notify_policy"`
-	SummaryStyle    *string           `json:"summary_style"`
-	Language        *string           `json:"language"`
-	MaxSummaryChars *int              `json:"max_summary_chars"`
-	FilterKeywords  *[]string         `json:"filter_keywords"`
-	DailyReport     *dailyReportPatch `json:"daily_report"`
+	NotifyChannel   *string             `json:"notify_channel"`
+	NotifyPolicy    *string             `json:"notify_policy"`
+	SummaryStyle    *string             `json:"summary_style"`
+	Language        *string             `json:"language"`
+	MaxSummaryChars *int                `json:"max_summary_chars"`
+	FilterKeywords  *[]string           `json:"filter_keywords"`
+	DailyReport     *dailyReportPatch   `json:"daily_report"`
+	RuntimeConfig   *runtimeConfigPatch `json:"runtime_config"`
 }
 
 type dailyReportPatch struct {
@@ -698,7 +717,7 @@ type dailyReportPatch struct {
 	MaxItems *int    `json:"max_items"`
 }
 
-func settingsResponseFromStore(settings store.UserSettings) settingsResponse {
+func settingsResponseFromStore(settings store.UserSettings, config store.AppConfig) settingsResponse {
 	settings = store.NormalizeUserSettings(settings)
 	return settingsResponse{
 		UserID:          settings.UserID,
@@ -709,14 +728,15 @@ func settingsResponseFromStore(settings store.UserSettings) settingsResponse {
 		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
 		FilterKeywords:  settings.FilterKeywords,
 		DailyReport:     settings.DailyReport,
-		Runtime:         runtimeSettings(),
+		Runtime:         runtimeSettings(config),
+		RuntimeConfig:   runtimeConfigResponseFromConfig(config),
 	}
 }
 
 func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.UserSettings, error) {
 	if patch.NotifyChannel != nil {
 		value := strings.TrimSpace(*patch.NotifyChannel)
-		if value != "telegram" && value != "none" {
+		if value != "telegram" && value != "email" && value != "none" {
 			return store.UserSettings{}, fmt.Errorf("invalid notify_channel")
 		}
 		current.NotifyChannel = value
@@ -795,27 +815,6 @@ func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.
 	return store.NormalizeUserSettings(current), nil
 }
 
-func runtimeSettings() settingsRuntime {
-	_, ytDLPErr := exec.LookPath(getenv("YTDLP_BIN", "yt-dlp"))
-	_, ffmpegErr := exec.LookPath(getenv("FFMPEG_BIN", "ffmpeg"))
-	return settingsRuntime{
-		LLMConfigured:          os.Getenv("LLM_API_KEY") != "",
-		EmbeddingConfigured:    embeddingConfiguredFromEnv(),
-		ASRConfigured:          os.Getenv("ASR_BASE_URL") != "" && os.Getenv("ASR_API_KEY") != "",
-		TelegramConfigured:     os.Getenv("TELEGRAM_TOKEN") != "",
-		EmailConfigured:        notify.EmailConfiguredFromEnv(),
-		YTDLPConfigured:        ytDLPErr == nil,
-		YTDLPCookiesSet:        os.Getenv("YTDLP_COOKIES_FILE") != "" || os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
-		YTDLPBrowserCookiesSet: os.Getenv("YTDLP_COOKIES_FROM_BROWSER") != "",
-		PlaywrightConfigured:   playwrightAvailable(),
-		FFMPEGConfigured:       ffmpegErr == nil,
-	}
-}
-
-func embeddingConfiguredFromEnv() bool {
-	return strings.TrimSpace(os.Getenv("EMBEDDING_API_KEY")) != ""
-}
-
 func playwrightAvailable() bool {
 	driverPath := os.Getenv("PLAYWRIGHT_DRIVER_PATH")
 	return executableAvailable(getenv("PLAYWRIGHT_CHROMIUM_EXECUTABLE", "chromium-browser")) &&
@@ -854,22 +853,9 @@ func main() {
 	st := store.New(pool)
 	h := &hub{clients: make(map[*websocket.Conn]struct{})}
 
-	llmClient := llm.NewClient(llm.Config{
-		BaseURL:     getenv("LLM_BASE_URL", "https://api.openai.com/v1"),
-		APIKey:      getenv("LLM_API_KEY", ""),
-		Model:       getenv("LLM_MODEL", "gpt-4o-mini"),
-		Preferences: st,
-	})
-	embeddingClient := llm.NewEmbeddingClient(llm.EmbeddingConfig{
-		BaseURL: getenv("EMBEDDING_BASE_URL", getenv("LLM_BASE_URL", "https://api.openai.com/v1")),
-		APIKey:  os.Getenv("EMBEDDING_API_KEY"),
-		Model:   getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
-	})
-
-	var notifier pipeline.Notifier = &logNotifier{}
-	if tg, err := notify.NewTelegram(); err == nil {
-		notifier = tg
-	}
+	llmClient := &runtimeconfig.LLM{Store: st}
+	embeddingClient := &runtimeconfig.Embedder{Store: st}
+	notifier := &runtimeconfig.Notifier{Store: st}
 
 	srv := &server{st: st, hub: h, knowledge: knowledgeapp.NewService(st, llmClient, embeddingClient)}
 	router, err := pipeline.NewRouter(
@@ -882,8 +868,8 @@ func main() {
 	}
 	srv.router = router
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
+	apiMux := http.NewServeMux()
+	apiMux.HandleFunc("/api/tasks", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
@@ -898,23 +884,30 @@ func main() {
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		}
 	})
-	mux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
+	apiMux.HandleFunc("/api/tasks/", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		if r.Method == http.MethodOptions {
 			return
 		}
 		srv.retryTask(w, r)
 	})
-	mux.HandleFunc("/api/subscriptions", srv.subscriptions)
-	mux.HandleFunc("/api/subscriptions/", srv.subscriptionByID)
-	mux.HandleFunc("/api/bookmarks", srv.bookmarks)
-	mux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
-	mux.HandleFunc("/api/articles", srv.articles)
-	mux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
-	mux.HandleFunc("/api/search", srv.searchKnowledge)
-	mux.HandleFunc("/api/qa", srv.knowledgeQA)
-	mux.HandleFunc("/api/settings", srv.settings)
-	mux.HandleFunc("/ws", srv.wsHandler)
+	apiMux.HandleFunc("/api/subscriptions", srv.subscriptions)
+	apiMux.HandleFunc("/api/subscriptions/", srv.subscriptionByID)
+	apiMux.HandleFunc("/api/bookmarks", srv.bookmarks)
+	apiMux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
+	apiMux.HandleFunc("/api/articles", srv.articles)
+	apiMux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
+	apiMux.HandleFunc("/api/search", srv.searchKnowledge)
+	apiMux.HandleFunc("/api/qa", srv.knowledgeQA)
+	apiMux.HandleFunc("/api/settings", srv.settings)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/auth/status", srv.authStatus)
+	mux.HandleFunc("/api/auth/setup", srv.authSetup)
+	mux.HandleFunc("/api/auth/login", srv.authLogin)
+	mux.HandleFunc("/api/auth/logout", srv.authLogout)
+	mux.Handle("/api/", srv.requireAuth(apiMux))
+	mux.Handle("/ws", srv.requireAuth(http.HandlerFunc(srv.wsHandler)))
 	mux.Handle("/", http.FileServer(http.Dir(getenv("WEB_DIR", "./web/dist"))))
 
 	addr := ":" + getenv("PORT", "8080")

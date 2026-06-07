@@ -236,7 +236,7 @@ func (s *stages) shouldNotify(ctx context.Context, userID string) (bool, string)
 }
 
 func normalizeUserSettings(settings UserSettings) UserSettings {
-	if settings.NotifyChannel != "telegram" && settings.NotifyChannel != "none" {
+	if settings.NotifyChannel != "telegram" && settings.NotifyChannel != "email" && settings.NotifyChannel != "none" {
 		settings.NotifyChannel = "telegram"
 	}
 	if settings.NotifyPolicy != "pass_only" && settings.NotifyPolicy != "save_only" {
