@@ -645,12 +645,37 @@ func dailyReportFromRawPolicy(rawPolicy string) DailyReport {
 		return defaults
 	}
 	var payload struct {
-		DailyReport DailyReport `json:"daily_report"`
+		DailyReport *struct {
+			Enabled  *bool   `json:"enabled"`
+			Email    *string `json:"email"`
+			Hour     *int    `json:"hour"`
+			Timezone *string `json:"timezone"`
+			MaxItems *int    `json:"max_items"`
+		} `json:"daily_report"`
 	}
 	if err := json.Unmarshal([]byte(rawPolicy), &payload); err != nil {
 		return defaults
 	}
-	return payload.DailyReport
+	if payload.DailyReport == nil {
+		return defaults
+	}
+	report := defaults
+	if payload.DailyReport.Enabled != nil {
+		report.Enabled = *payload.DailyReport.Enabled
+	}
+	if payload.DailyReport.Email != nil {
+		report.Email = *payload.DailyReport.Email
+	}
+	if payload.DailyReport.Hour != nil {
+		report.Hour = *payload.DailyReport.Hour
+	}
+	if payload.DailyReport.Timezone != nil {
+		report.Timezone = *payload.DailyReport.Timezone
+	}
+	if payload.DailyReport.MaxItems != nil {
+		report.MaxItems = *payload.DailyReport.MaxItems
+	}
+	return report
 }
 
 func (s *Store) GetLLMPreferences(ctx context.Context, userID string) (llm.UserPreferences, error) {
