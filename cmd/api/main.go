@@ -601,6 +601,33 @@ func (s *server) articles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(articles)
 }
 
+// GET /api/source-items?source_type=&limit=
+func (s *server) sourceItems(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	userID := defaultUserID()
+	items, err := s.st.ListSourceItems(
+		r.Context(),
+		userID,
+		strings.TrimSpace(r.URL.Query().Get("source_type")),
+		intQuery(r.URL.Query(), "limit", 80),
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(items)
+}
+
 // GET /api/knowledge/facets
 func (s *server) knowledgeFacets(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -954,6 +981,7 @@ func main() {
 	apiMux.HandleFunc("/api/bookmarks", srv.bookmarks)
 	apiMux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
 	apiMux.HandleFunc("/api/articles", srv.articles)
+	apiMux.HandleFunc("/api/source-items", srv.sourceItems)
 	apiMux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
 	apiMux.HandleFunc("/api/search", srv.searchKnowledge)
 	apiMux.HandleFunc("/api/qa", srv.knowledgeQA)
