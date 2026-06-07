@@ -156,7 +156,7 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    items.value = await api.getSourceItems({ source_type: 'chaoxing', limit: 200 })
+    items.value = await api.getSourceItems({ source_type: 'chaoxing', limit: 200, current: true })
     loaded.value = true
   } catch {
     error.value = '无法读取学习通作业考试，请确认 API 服务可用。'

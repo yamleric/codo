@@ -614,12 +614,15 @@ func (s *server) sourceItems(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	userID := defaultUserID()
-	items, err := s.st.ListSourceItems(
-		r.Context(),
-		userID,
-		strings.TrimSpace(r.URL.Query().Get("source_type")),
-		intQuery(r.URL.Query(), "limit", 80),
-	)
+	sourceType := strings.TrimSpace(r.URL.Query().Get("source_type"))
+	limit := intQuery(r.URL.Query(), "limit", 80)
+	var items []store.SourceItemRow
+	var err error
+	if boolQuery(r.URL.Query(), "current") {
+		items, err = s.st.ListCurrentSourceItems(r.Context(), userID, sourceType, limit)
+	} else {
+		items, err = s.st.ListSourceItems(r.Context(), userID, sourceType, limit)
+	}
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -1174,4 +1177,9 @@ func intQuery(values url.Values, key string, fallback int) int {
 		return fallback
 	}
 	return value
+}
+
+func boolQuery(values url.Values, key string) bool {
+	raw := strings.TrimSpace(strings.ToLower(values.Get(key)))
+	return raw == "1" || raw == "true" || raw == "yes"
 }

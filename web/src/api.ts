@@ -69,7 +69,7 @@ export const api = {
   getArticles: (params?: { category?: string; tag?: string; q?: string; limit?: number }) =>
     axios.get<Article[]>('/api/articles', { params }).then(r => r.data),
 
-  getSourceItems: (params?: { source_type?: string; limit?: number }) =>
+  getSourceItems: (params?: { source_type?: string; limit?: number; current?: boolean }) =>
     axios.get<SourceItem[]>('/api/source-items', { params }).then(r => r.data),
 
   getKnowledgeFacets: () =>
