@@ -24,7 +24,7 @@
           <span class="settings-card-icon"><Bell :size="16" /></span>
           <div>
             <strong>通知</strong>
-            <small>{{ settings?.user_id || 'demo-user' }}</small>
+            <small>{{ settings?.username || settings?.user_id || 'demo-user' }}</small>
           </div>
         </header>
 
@@ -254,8 +254,9 @@
           <input
             v-model.trim="form.daily_report.email"
             type="email"
-            placeholder="name@example.com"
+            placeholder="name@example.com，或留空使用登录用户名"
           />
+          <small class="settings-help">留空时，如果你的登录用户名本身是邮箱，会自动发送到该地址。</small>
         </label>
 
         <div class="settings-triple">

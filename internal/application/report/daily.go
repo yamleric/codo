@@ -47,7 +47,8 @@ func (s *Service) RunForUser(ctx context.Context, userID string, now time.Time) 
 		return RunResult{}, err
 	}
 	cfg := store.NormalizeDailyReport(settings.DailyReport)
-	if !cfg.Enabled || cfg.Email == "" {
+	recipient := store.DailyReportRecipient(cfg, settings.Username)
+	if !cfg.Enabled || recipient == "" {
 		return RunResult{Status: "disabled"}, nil
 	}
 	if s.email == nil {
@@ -88,7 +89,7 @@ func (s *Service) RunForUser(ctx context.Context, userID string, now time.Time) 
 
 	subject := fmt.Sprintf("Codo 日报 %s（%d 条）", reportDate, len(articles))
 	body := BuildDailyEmailBody(reportDate, cfg.Timezone, articles)
-	if err := s.email.Send(ctx, []string{cfg.Email}, subject, body); err != nil {
+	if err := s.email.Send(ctx, []string{recipient}, subject, body); err != nil {
 		_ = s.store.MarkDailyReportFailed(ctx, userID, reportDate, err)
 		return RunResult{ReportDate: reportDate, ItemCount: len(articles), Status: "failed"}, err
 	}

@@ -980,6 +980,7 @@ func (s *Store) listSteps(ctx context.Context, taskID string) ([]StepRow, error)
 
 type UserSettings struct {
 	UserID         string          `json:"user_id"`
+	Username       string          `json:"username"`
 	NotifyChannel  string          `json:"notify_channel"`
 	FilterKeywords []string        `json:"filter_keywords"`
 	ModelPolicy    UserModelPolicy `json:"model_policy"`
@@ -1029,6 +1030,9 @@ func NormalizeUserSettings(settings UserSettings) UserSettings {
 	settings.FilterKeywords = normalizeKeywords(settings.FilterKeywords)
 	settings.ModelPolicy = NormalizeUserModelPolicy(settings.ModelPolicy)
 	settings.DailyReport = NormalizeDailyReport(settings.DailyReport)
+	if settings.DailyReport.Enabled && DailyReportRecipient(settings.DailyReport, settings.Username) == "" {
+		settings.DailyReport.Enabled = false
+	}
 	return settings
 }
 
@@ -1085,9 +1089,6 @@ func NormalizeDailyReport(report DailyReport) DailyReport {
 	if report.MaxItems > 80 {
 		report.MaxItems = 80
 	}
-	if report.Enabled && report.Email == "" {
-		report.Enabled = false
-	}
 	return report
 }
 
@@ -1100,12 +1101,14 @@ func (s *Store) GetUserSettings(ctx context.Context, userID string) (UserSetting
 	var rawPolicy string
 	err := s.db.QueryRow(ctx, `
 		SELECT id,
+		       COALESCE(username, ''),
 		       COALESCE(NULLIF(notify_channel, ''), 'telegram'),
 		       COALESCE(filter_keywords, '{}'::text[]),
 		       COALESCE(model_policy, '{}'::jsonb)::text
 		FROM users
 		WHERE id = $1`, userID).Scan(
 		&settings.UserID,
+		&settings.Username,
 		&settings.NotifyChannel,
 		&settings.FilterKeywords,
 		&rawPolicy,
@@ -1120,6 +1123,26 @@ func (s *Store) GetUserSettings(ctx context.Context, userID string) (UserSetting
 	}
 	settings.DailyReport = dailyReportFromRawPolicy(rawPolicy)
 	return NormalizeUserSettings(settings), nil
+}
+
+func IsEmailAddress(value string) bool {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return false
+	}
+	_, err := mail.ParseAddress(value)
+	return err == nil
+}
+
+func DailyReportRecipient(report DailyReport, username string) string {
+	if IsEmailAddress(report.Email) {
+		return strings.TrimSpace(report.Email)
+	}
+	username = strings.TrimSpace(username)
+	if IsEmailAddress(username) {
+		return username
+	}
+	return ""
 }
 
 func (s *Store) UpdateUserSettings(ctx context.Context, settings UserSettings) error {

@@ -88,6 +88,26 @@ func TestApplySettingsPatchRejectsInvalidDailyReportEmail(t *testing.T) {
 	}
 }
 
+func TestApplySettingsPatchAllowsMissingDailyReportEmailWhenUsernameIsEmail(t *testing.T) {
+	enabled := true
+	updated, err := applySettingsPatch(store.UserSettings{
+		UserID:         "demo-user",
+		Username:       "owner@example.com",
+		NotifyChannel:  "telegram",
+		FilterKeywords: []string{},
+		ModelPolicy:    store.DefaultUserModelPolicy(),
+		DailyReport:    store.DefaultDailyReport(),
+	}, settingsPatch{
+		DailyReport: &dailyReportPatch{Enabled: &enabled},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.DailyReport.Enabled || updated.DailyReport.Email != "" {
+		t.Fatalf("expected enabled daily report with blank email, got %#v", updated.DailyReport)
+	}
+}
+
 func TestApplySettingsPatchAcceptsEmailNotifyChannel(t *testing.T) {
 	channel := "email"
 	updated, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{NotifyChannel: &channel})
@@ -102,6 +122,7 @@ func TestApplySettingsPatchAcceptsEmailNotifyChannel(t *testing.T) {
 func storeDefaultSettings() store.UserSettings {
 	return store.UserSettings{
 		UserID:         "demo-user",
+		Username:       "owner",
 		NotifyChannel:  "telegram",
 		FilterKeywords: []string{},
 		ModelPolicy:    store.DefaultUserModelPolicy(),

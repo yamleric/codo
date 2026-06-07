@@ -72,6 +72,38 @@ func TestRunForUserSendsOnceAfterConfiguredHour(t *testing.T) {
 	}
 }
 
+func TestRunForUserFallsBackToUsernameEmail(t *testing.T) {
+	st := &fakeStore{
+		settings: store.UserSettings{
+			UserID:   "demo-user",
+			Username: "owner@example.com",
+			DailyReport: store.DailyReport{
+				Enabled:  true,
+				Email:    "",
+				Hour:     9,
+				Timezone: "Asia/Shanghai",
+				MaxItems: 10,
+			},
+		},
+		articles: []store.DailyArticleRow{
+			{Source: "rss", Summary: "摘要", Category: "技术"},
+		},
+	}
+	email := &fakeEmail{}
+	service := NewService(st, email)
+
+	result, err := service.RunForUser(context.Background(), "demo-user", time.Date(2026, 6, 7, 10, 0, 0, 0, time.FixedZone("CST", 8*60*60)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Status != "sent" || result.ItemCount != 1 {
+		t.Fatalf("unexpected result: %#v", result)
+	}
+	if len(email.recipients) != 1 || email.recipients[0] != "owner@example.com" {
+		t.Fatalf("unexpected recipients: %#v", email.recipients)
+	}
+}
+
 type fakeStore struct {
 	settings store.UserSettings
 	articles []store.DailyArticleRow
@@ -109,10 +141,12 @@ func (f *fakeStore) MarkDailyReportFailed(context.Context, string, string, error
 }
 
 type fakeEmail struct {
-	sends int
+	sends      int
+	recipients []string
 }
 
-func (f *fakeEmail) Send(context.Context, []string, string, string) error {
+func (f *fakeEmail) Send(_ context.Context, recipients []string, _, _ string) error {
 	f.sends++
+	f.recipients = append([]string{}, recipients...)
 	return nil
 }

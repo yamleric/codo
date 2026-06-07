@@ -20,6 +20,19 @@ func TestDailyReportFromRawPolicyKeepsExplicitMidnightHour(t *testing.T) {
 	}
 }
 
+func TestDailyReportRecipientFallsBackToUsernameEmail(t *testing.T) {
+	if got := DailyReportRecipient(DailyReport{}, "owner@example.com"); got != "owner@example.com" {
+		t.Fatalf("recipient = %q, want username email", got)
+	}
+}
+
+func TestDailyReportRecipientPrefersExplicitEmail(t *testing.T) {
+	report := DailyReport{Email: "summary@example.com"}
+	if got := DailyReportRecipient(report, "owner@example.com"); got != "summary@example.com" {
+		t.Fatalf("recipient = %q, want explicit email", got)
+	}
+}
+
 func TestBuildArticleChunksIncludesSummary(t *testing.T) {
 	chunks := BuildArticleChunks("核心摘要", "正文内容")
 	if len(chunks) != 1 {
