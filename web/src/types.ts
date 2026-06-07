@@ -225,6 +225,7 @@ export interface DailyReportSettings {
 
 export interface UserSettings {
   user_id: string
+  username: string
   notify_channel: NotifyChannel
   notify_policy: NotifyPolicy
   summary_style: SummaryStyle

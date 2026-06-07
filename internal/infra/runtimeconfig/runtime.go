@@ -84,14 +84,15 @@ func (n *Notifier) Send(ctx context.Context, userID, message string) error {
 	case "none":
 		return nil
 	case "email":
-		if strings.TrimSpace(settings.DailyReport.Email) == "" {
+		recipient := store.DailyReportRecipient(settings.DailyReport, settings.Username)
+		if recipient == "" {
 			return fmt.Errorf("notify: email recipient not set")
 		}
 		email, err := notify.NewEmail(EmailConfig(cfg.SMTP))
 		if err != nil {
 			return err
 		}
-		return email.Send(ctx, []string{settings.DailyReport.Email}, "Codo 内容推送", message)
+		return email.Send(ctx, []string{recipient}, "Codo 内容推送", message)
 	default:
 		if strings.TrimSpace(cfg.Telegram.ChatID) == "" {
 			return fmt.Errorf("notify: telegram chat id not set")

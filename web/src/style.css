@@ -2641,6 +2641,14 @@ select:focus-visible {
   font-weight: 600;
 }
 
+.settings-field .settings-help {
+  overflow: visible;
+  color: var(--faint);
+  font-size: 8px;
+  line-height: 1.5;
+  white-space: normal;
+}
+
 .settings-segmented {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

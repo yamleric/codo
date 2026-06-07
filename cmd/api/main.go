@@ -762,6 +762,7 @@ type qaPayload struct {
 
 type settingsResponse struct {
 	UserID          string                `json:"user_id"`
+	Username        string                `json:"username"`
 	NotifyChannel   string                `json:"notify_channel"`
 	NotifyPolicy    string                `json:"notify_policy"`
 	SummaryStyle    string                `json:"summary_style"`
@@ -809,6 +810,7 @@ func settingsResponseFromStore(settings store.UserSettings, config store.AppConf
 	settings = store.NormalizeUserSettings(settings)
 	return settingsResponse{
 		UserID:          settings.UserID,
+		Username:        settings.Username,
 		NotifyChannel:   settings.NotifyChannel,
 		NotifyPolicy:    settings.ModelPolicy.NotifyPolicy,
 		SummaryStyle:    settings.ModelPolicy.SummaryStyle,
@@ -895,8 +897,8 @@ func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.
 			}
 			report.MaxItems = *patch.DailyReport.MaxItems
 		}
-		if report.Enabled && strings.TrimSpace(report.Email) == "" {
-			return store.UserSettings{}, fmt.Errorf("daily_report.email is required when enabled")
+		if report.Enabled && store.DailyReportRecipient(report, current.Username) == "" {
+			return store.UserSettings{}, fmt.Errorf("daily_report.email is required when enabled unless username is an email")
 		}
 		current.DailyReport = report
 	}
