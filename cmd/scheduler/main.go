@@ -45,7 +45,7 @@ func main() {
 	})
 	embeddingClient := llm.NewEmbeddingClient(llm.EmbeddingConfig{
 		BaseURL: getenv("EMBEDDING_BASE_URL", getenv("LLM_BASE_URL", "https://api.openai.com/v1")),
-		APIKey:  getenv("EMBEDDING_API_KEY", getenv("LLM_API_KEY", "")),
+		APIKey:  os.Getenv("EMBEDDING_API_KEY"),
 		Model:   getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
 	})
 
