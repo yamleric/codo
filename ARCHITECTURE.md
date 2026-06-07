@@ -205,6 +205,10 @@ articles (id, user_id, task_id, url, title, source, content_type,
           content, summary, category, tags, metadata jsonb,
           published_at, embedding vector(1536), created_at)
 
+article_chunks (id, article_id, user_id, chunk_index, content,
+                token_estimate, embedding vector(1536), created_at,
+                updated_at)
+
 -- 订阅源配置
 subscriptions (id, user_id, source_type, config jsonb,
                last_fetched_at, enabled, created_at)
@@ -227,6 +231,20 @@ daily_reports (id, user_id, report_date, status, item_count,
 例如用户提交政治新闻链接时，入口仍识别为 `webpage`，Pipeline 抓取正文并总结，然后分类器输出 `category=政治` 和若干短标签。前端知识库页通过 `/api/knowledge/facets` 聚合已有 `category/tags`，动态生成分类和标签筛选页，不需要提前写死“政治”“财经”“法律”等分类。
 
 `articles.metadata` 用于承载平台、作者、站点、封面等来源特有信息；只有稳定、高频、需要索引或排序的字段才单独加列，例如 `published_at`。
+
+---
+
+## 知识库搜索与问答
+
+入库内容会在 `SaveKnowledgeItem` 后同步生成 `article_chunks`。搜索接口 `/api/search` 先使用 PostgreSQL 的 `pg_trgm` 在切片正文、标题、摘要、分类、标签中做关键词召回；如果配置了 embedding 服务，并且 scheduler 已经为切片补齐向量，则再用 `pgvector` 做语义召回并合并排序。
+
+问答接口 `/api/qa` 使用同一套召回结果构造 RAG 上下文，要求模型只依据引用片段回答。Embedding 配置来自服务器环境变量，默认可复用 LLM 的 base URL/key，也可以独立配置：
+
+- `EMBEDDING_BASE_URL`
+- `EMBEDDING_API_KEY`
+- `EMBEDDING_MODEL`
+
+未配置 embedding 时，搜索和问答仍可使用关键词召回；未配置 LLM 时，搜索可用，问答返回服务未配置错误。
 
 ---
 

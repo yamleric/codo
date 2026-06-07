@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/codo/codo/internal/application/ingest"
+	knowledgeapp "github.com/codo/codo/internal/application/knowledge"
 	"github.com/codo/codo/internal/application/pipeline"
 	dailyreport "github.com/codo/codo/internal/application/report"
 	"github.com/codo/codo/internal/domain/task"
@@ -42,6 +43,11 @@ func main() {
 		Model:       getenv("LLM_MODEL", "gpt-4o-mini"),
 		Preferences: st,
 	})
+	embeddingClient := llm.NewEmbeddingClient(llm.EmbeddingConfig{
+		BaseURL: getenv("EMBEDDING_BASE_URL", getenv("LLM_BASE_URL", "https://api.openai.com/v1")),
+		APIKey:  getenv("EMBEDDING_API_KEY", getenv("LLM_API_KEY", "")),
+		Model:   getenv("EMBEDDING_MODEL", "text-embedding-3-small"),
+	})
 
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, &logNotifier{}, nil),
@@ -52,6 +58,7 @@ func main() {
 		os.Exit(1)
 	}
 	reportService := dailyReportService(st)
+	knowledgeService := knowledgeapp.NewService(st, nil, embeddingClient)
 
 	interval := 30 * time.Minute
 	slog.Info("scheduler started", "interval", interval)
@@ -61,12 +68,14 @@ func main() {
 	// run immediately on start
 	runRSS(ctx, st, router)
 	runDailyReport(ctx, reportService)
+	runEmbeddingBackfill(ctx, knowledgeService)
 
 	for {
 		select {
 		case <-tick.C:
 			runRSS(ctx, st, router)
 			runDailyReport(ctx, reportService)
+			runEmbeddingBackfill(ctx, knowledgeService)
 		case <-ctx.Done():
 			slog.Info("scheduler stopped")
 			return
@@ -149,6 +158,23 @@ func runDailyReport(ctx context.Context, service *dailyreport.Service) {
 	case "disabled", "pending", "already_done":
 	default:
 		slog.Info("daily report checked", "status", result.Status, "date", result.ReportDate, "items", result.ItemCount)
+	}
+}
+
+func runEmbeddingBackfill(ctx context.Context, service *knowledgeapp.Service) {
+	if service == nil {
+		return
+	}
+	userID := getenv("DEFAULT_USER_ID", "demo-user")
+	runCtx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	defer cancel()
+	result, err := service.BackfillEmbeddings(runCtx, userID, 24)
+	if err != nil {
+		slog.Warn("knowledge embedding backfill failed", "scanned", result.Scanned, "embedded", result.Embedded, "failed", result.Failed, "err", err)
+		return
+	}
+	if result.Embedded > 0 || result.Failed > 0 {
+		slog.Info("knowledge embedding backfill completed", "scanned", result.Scanned, "embedded", result.Embedded, "failed", result.Failed)
 	}
 }
 

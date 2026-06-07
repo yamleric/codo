@@ -43,6 +43,13 @@ func NewClient(cfg Config) *Client {
 	}
 }
 
+func (c *Client) Configured() bool {
+	return c != nil &&
+		strings.TrimSpace(c.cfg.BaseURL) != "" &&
+		strings.TrimSpace(c.cfg.APIKey) != "" &&
+		strings.TrimSpace(c.cfg.Model) != ""
+}
+
 type chatMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -63,6 +70,9 @@ type chatResponse struct {
 }
 
 func (c *Client) complete(ctx context.Context, system, user string) (string, error) {
+	if !c.Configured() {
+		return "", fmt.Errorf("llm: not configured")
+	}
 	body, _ := json.Marshal(chatRequest{
 		Model: c.cfg.Model,
 		Messages: []chatMessage{
@@ -100,6 +110,10 @@ func (c *Client) complete(ctx context.Context, system, user string) (string, err
 		return "", fmt.Errorf("llm: empty choices")
 	}
 	return cr.Choices[0].Message.Content, nil
+}
+
+func (c *Client) Complete(ctx context.Context, system, user string) (string, error) {
+	return c.complete(ctx, system, user)
 }
 
 func (c *Client) Filter(ctx context.Context, userID string, content string) (task.FilterDecision, string, error) {
@@ -287,4 +301,77 @@ func truncate(s string, maxRunes int) string {
 		return s
 	}
 	return string(r[:maxRunes]) + "…"
+}
+
+type EmbeddingConfig struct {
+	BaseURL string
+	APIKey  string
+	Model   string
+}
+
+type EmbeddingClient struct {
+	cfg  EmbeddingConfig
+	http *http.Client
+}
+
+func NewEmbeddingClient(cfg EmbeddingConfig) *EmbeddingClient {
+	return &EmbeddingClient{
+		cfg:  cfg,
+		http: &http.Client{Timeout: 45 * time.Second},
+	}
+}
+
+func (c *EmbeddingClient) Configured() bool {
+	return c != nil &&
+		strings.TrimSpace(c.cfg.BaseURL) != "" &&
+		strings.TrimSpace(c.cfg.APIKey) != "" &&
+		strings.TrimSpace(c.cfg.Model) != ""
+}
+
+type embeddingRequest struct {
+	Model string `json:"model"`
+	Input string `json:"input"`
+}
+
+type embeddingResponse struct {
+	Data []struct {
+		Embedding []float32 `json:"embedding"`
+	} `json:"data"`
+}
+
+func (c *EmbeddingClient) Embed(ctx context.Context, input string) ([]float32, error) {
+	if !c.Configured() {
+		return nil, fmt.Errorf("embedding: not configured")
+	}
+	body, _ := json.Marshal(embeddingRequest{
+		Model: c.cfg.Model,
+		Input: input,
+	})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost,
+		strings.TrimRight(c.cfg.BaseURL, "/")+"/embeddings",
+		bytes.NewReader(body))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+c.cfg.APIKey)
+
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	raw, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode >= 400 {
+		return nil, fmt.Errorf("embedding: http %d: %s", resp.StatusCode, raw)
+	}
+	var er embeddingResponse
+	if err := json.Unmarshal(raw, &er); err != nil {
+		return nil, fmt.Errorf("embedding: parse response: %w", err)
+	}
+	if len(er.Data) == 0 || len(er.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("embedding: empty response")
+	}
+	return er.Data[0].Embedding, nil
 }
