@@ -343,6 +343,44 @@ func (s *Store) ListSourceItems(ctx context.Context, userID, sourceType string, 
 	return items, rows.Err()
 }
 
+func (s *Store) ListCurrentSourceItems(ctx context.Context, userID, sourceType string, limit int) ([]SourceItemRow, error) {
+	if limit <= 0 || limit > 200 {
+		limit = 80
+	}
+	rows, err := s.db.Query(ctx, `
+		SELECT si.id, si.user_id, si.subscription_id, si.source_type, si.item_type, si.external_id,
+		       si.course, si.title, si.status, si.url, si.due_at, si.payload,
+		       si.first_seen_at, si.last_seen_at, si.new_notified_at, si.due_notified_at,
+		       si.created_at, si.updated_at
+		FROM source_items si
+		JOIN subscriptions sub ON sub.id = si.subscription_id
+		WHERE si.user_id = $1
+		  AND ($2 = '' OR si.source_type = $2)
+		  AND (
+		    sub.last_fetched_at IS NULL
+		    OR si.last_seen_at >= sub.last_fetched_at - INTERVAL '10 minutes'
+		  )
+		ORDER BY COALESCE(si.due_at, si.last_seen_at) ASC, si.last_seen_at DESC
+		LIMIT $3`, userID, sourceType, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var items []SourceItemRow
+	for rows.Next() {
+		item, err := scanSourceItem(rows)
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	if items == nil {
+		return []SourceItemRow{}, nil
+	}
+	return items, rows.Err()
+}
+
 func (s *Store) MarkSourceItemNewNotified(ctx context.Context, id string) error {
 	_, err := s.db.Exec(ctx, `
 		UPDATE source_items
