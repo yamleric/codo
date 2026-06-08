@@ -245,6 +245,27 @@ func normalizeUserSettings(settings UserSettings) UserSettings {
 	return settings
 }
 
+func (s *stages) useExplicitSourceDecision(ctx context.Context, t *task.Task) bool {
+	decision, reason, ok := explicitSourceDecision(t.Source)
+	if !ok {
+		return false
+	}
+	t.SetFilterDecision(decision)
+	s.addStep(ctx, t, "过滤判断", task.StepSkipped, fmt.Sprintf("%s: %s", decision, reason), time.Now())
+	return true
+}
+
+func explicitSourceDecision(source task.SourceType) (task.FilterDecision, string, bool) {
+	switch source {
+	case task.SourceManual:
+		return task.FilterPass, "用户主动提交链接，直接保存并推送摘要", true
+	case task.SourceBookmark, task.SourceLinuxDo:
+		return task.FilterSilent, "用户收藏来源，跳过丢弃过滤并静默入库", true
+	default:
+		return task.FilterUnset, "", false
+	}
+}
+
 // ── WebPagePipeline ───────────────────────────────────────────────────────────
 
 type WebPagePipeline struct {
@@ -283,15 +304,17 @@ func (p *WebPagePipeline) Run(ctx context.Context, t *task.Task) error {
 	if err := p.setStatus(ctx, t, task.StatusFiltering); err != nil {
 		return err
 	}
-	start = time.Now()
-	decision, reason, err := p.filterer.Filter(ctx, t.UserID, content)
-	if err != nil {
-		return p.fail(ctx, t, "过滤判断", err, start)
-	}
-	t.SetFilterDecision(decision)
-	p.addStep(ctx, t, "过滤判断", task.StepOK, fmt.Sprintf("%s: %s", decision, reason), start)
-	if decision == task.FilterDiscard {
-		return p.setStatus(ctx, t, task.StatusDiscarded)
+	if !p.useExplicitSourceDecision(ctx, t) {
+		start = time.Now()
+		decision, reason, err := p.filterer.Filter(ctx, t.UserID, content)
+		if err != nil {
+			return p.fail(ctx, t, "过滤判断", err, start)
+		}
+		t.SetFilterDecision(decision)
+		p.addStep(ctx, t, "过滤判断", task.StepOK, fmt.Sprintf("%s: %s", decision, reason), start)
+		if decision == task.FilterDiscard {
+			return p.setStatus(ctx, t, task.StatusDiscarded)
+		}
 	}
 
 	if err := p.setStatus(ctx, t, task.StatusAnalyzing); err != nil {
@@ -344,9 +367,10 @@ func (p *VideoPipeline) Run(ctx context.Context, t *task.Task) error {
 	t.SetRawContent(transcript)
 	p.addStep(ctx, t, "获取视频文字稿", task.StepOK, fmt.Sprintf("%d 字", len([]rune(transcript))), start)
 
-	t.SetFilterDecision(task.FilterPass) // user explicitly submitted; no filter needed
-	if t.Source != task.SourceManual {
-		// auto-sourced video (RSS etc.) still needs filter
+	if err := p.setStatus(ctx, t, task.StatusFiltering); err != nil {
+		return err
+	}
+	if !p.useExplicitSourceDecision(ctx, t) {
 		start2 := time.Now()
 		decision, reason, ferr := p.filterer.Filter(ctx, t.UserID, transcript)
 		if ferr != nil {
