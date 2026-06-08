@@ -70,6 +70,7 @@ export interface Article {
   title: string
   source: string
   content_type: string
+  content?: string
   summary: string
   category: string
   tags: string[]

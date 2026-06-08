@@ -601,6 +601,37 @@ func (s *server) articles(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(articles)
 }
 
+// GET /api/articles/:id
+func (s *server) articleByID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/articles/"), "/")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "article not found", http.StatusNotFound)
+		return
+	}
+	userID := defaultUserID()
+	article, err := s.st.GetArticle(r.Context(), userID, id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			http.Error(w, "article not found", http.StatusNotFound)
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(article)
+}
+
 // GET /api/source-items?source_type=&limit=
 func (s *server) sourceItems(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
@@ -986,6 +1017,7 @@ func main() {
 	apiMux.HandleFunc("/api/bookmarks", srv.bookmarks)
 	apiMux.HandleFunc("/api/bookmarks/", srv.bookmarkByID)
 	apiMux.HandleFunc("/api/articles", srv.articles)
+	apiMux.HandleFunc("/api/articles/", srv.articleByID)
 	apiMux.HandleFunc("/api/source-items", srv.sourceItems)
 	apiMux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
 	apiMux.HandleFunc("/api/search", srv.searchKnowledge)

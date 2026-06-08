@@ -147,6 +147,7 @@ type ArticleRow struct {
 	Title       string         `json:"title"`
 	Source      string         `json:"source"`
 	ContentType string         `json:"content_type"`
+	Content     string         `json:"content,omitempty"`
 	Summary     string         `json:"summary"`
 	Category    string         `json:"category"`
 	Tags        []string       `json:"tags"`
@@ -228,6 +229,60 @@ func (s *Store) ListArticles(ctx context.Context, userID string, query ArticleQu
 		return []ArticleRow{}, nil
 	}
 	return articles, nil
+}
+
+func (s *Store) GetArticle(ctx context.Context, userID, articleID string) (ArticleRow, error) {
+	var article ArticleRow
+	var rawMetadata string
+	var publishedAt pgtype.Timestamptz
+	err := s.db.QueryRow(ctx, `
+		SELECT id,
+		       user_id,
+		       COALESCE(task_id, ''),
+		       COALESCE(url, ''),
+		       COALESCE(title, ''),
+		       source,
+		       COALESCE(content_type, ''),
+		       COALESCE(content, ''),
+		       summary,
+		       COALESCE(category, ''),
+		       COALESCE(tags, '{}'::text[]),
+		       COALESCE(metadata, '{}'::jsonb)::text,
+		       published_at,
+		       created_at
+		FROM articles
+		WHERE user_id = $1 AND id = $2`,
+		userID, articleID).Scan(
+		&article.ID,
+		&article.UserID,
+		&article.TaskID,
+		&article.URL,
+		&article.Title,
+		&article.Source,
+		&article.ContentType,
+		&article.Content,
+		&article.Summary,
+		&article.Category,
+		&article.Tags,
+		&rawMetadata,
+		&publishedAt,
+		&article.CreatedAt,
+	)
+	if err != nil {
+		return article, err
+	}
+	if article.Tags == nil {
+		article.Tags = []string{}
+	}
+	article.Metadata = map[string]any{}
+	if strings.TrimSpace(rawMetadata) != "" {
+		_ = json.Unmarshal([]byte(rawMetadata), &article.Metadata)
+	}
+	if publishedAt.Valid {
+		t := publishedAt.Time
+		article.PublishedAt = &t
+	}
+	return article, nil
 }
 
 func (s *Store) KnowledgeFacets(ctx context.Context, userID string) (KnowledgeFacets, error) {

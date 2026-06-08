@@ -33,6 +33,18 @@ func TestDailyReportRecipientPrefersExplicitEmail(t *testing.T) {
 	}
 }
 
+func TestInitialNotifyChannelUsesEmailForEmailUsername(t *testing.T) {
+	if got := initialNotifyChannel("owner@example.com"); got != "email" {
+		t.Fatalf("initial notify channel = %q, want email", got)
+	}
+}
+
+func TestInitialNotifyChannelDefaultsToTelegramOtherwise(t *testing.T) {
+	if got := initialNotifyChannel("owner"); got != "telegram" {
+		t.Fatalf("initial notify channel = %q, want telegram", got)
+	}
+}
+
 func TestBuildArticleChunksIncludesSummary(t *testing.T) {
 	chunks := BuildArticleChunks("核心摘要", "正文内容")
 	if len(chunks) != 1 {

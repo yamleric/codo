@@ -57,11 +57,12 @@ func (s *Store) SetupOwner(ctx context.Context, userID, username, passwordHash s
 		UPDATE users
 		SET username = $2,
 		    password_hash = $3,
+		    notify_channel = $4,
 		    auth_enabled = TRUE,
 		    updated_at = NOW()
 		WHERE id = $1 AND COALESCE(password_hash, '') = ''
 		RETURNING id, username, password_hash`,
-		userID, username, passwordHash).Scan(&user.UserID, &user.Username, &user.PasswordHash)
+		userID, username, passwordHash, initialNotifyChannel(username)).Scan(&user.UserID, &user.Username, &user.PasswordHash)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return AuthUser{}, fmt.Errorf("setup already completed")
@@ -123,6 +124,13 @@ func (s *Store) DeleteSession(ctx context.Context, tokenHash string) error {
 func (s *Store) DeleteExpiredSessions(ctx context.Context) error {
 	_, err := s.db.Exec(ctx, `DELETE FROM auth_sessions WHERE expires_at <= NOW()`)
 	return err
+}
+
+func initialNotifyChannel(username string) string {
+	if IsEmailAddress(username) {
+		return "email"
+	}
+	return "telegram"
 }
 
 type AppConfig struct {
