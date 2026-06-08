@@ -119,6 +119,43 @@
 
 ---
 
+## Docker Compose 部署
+
+发布版可直接用 Docker Compose 运行，不需要本地构建源码：
+
+```bash
+mkdir codo
+cd codo
+curl -LO https://github.com/yamleric/codo/releases/latest/download/docker-compose.yml
+curl -LO https://github.com/yamleric/codo/releases/latest/download/env.example
+cp env.example .env
+```
+
+编辑 `.env`，至少配置：
+
+```env
+POSTGRES_PASSWORD=change-me
+LLM_BASE_URL=https://api.openai.com/v1
+LLM_API_KEY=change-me
+LLM_MODEL=gpt-5
+```
+
+启动：
+
+```bash
+docker compose up -d
+```
+
+默认访问地址：
+
+```text
+http://服务器IP:8090
+```
+
+更完整的部署、反向代理、更新和备份说明见 [docs/deploy-docker.md](docs/deploy-docker.md)。
+
+---
+
 ## 设计原则
 
 - 人驱动，系统自动执行，结果永久沉淀

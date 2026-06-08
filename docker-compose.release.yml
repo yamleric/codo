@@ -1,0 +1,56 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg17
+    restart: always
+    environment:
+      POSTGRES_DB: codo
+      POSTGRES_USER: codo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U codo"]
+      interval: 10s
+      retries: 5
+
+  api:
+    image: ghcr.io/yamleric/codo:${CODO_VERSION:-latest}
+    restart: always
+    command: ./api
+    ports:
+      - "${CODO_BIND:-127.0.0.1:8090}:8080"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://codo:${POSTGRES_PASSWORD}@postgres:5432/codo
+      WEB_DIR: ./web/dist
+      PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
+      PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/usr/bin/chromium-browser}
+    volumes:
+      - ./secrets:/run/codo-secrets:ro
+      - ./browser-profile:/run/codo-browser-profile:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  scheduler:
+    image: ghcr.io/yamleric/codo:${CODO_VERSION:-latest}
+    restart: always
+    command: ./scheduler
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://codo:${POSTGRES_PASSWORD}@postgres:5432/codo
+      PLAYWRIGHT_DRIVER_PATH: ${PLAYWRIGHT_DRIVER_PATH:-/ms-playwright-go}
+      PLAYWRIGHT_NODEJS_PATH: ${PLAYWRIGHT_NODEJS_PATH:-/usr/bin/node}
+      PLAYWRIGHT_CHROMIUM_EXECUTABLE: ${PLAYWRIGHT_CHROMIUM_EXECUTABLE:-/usr/bin/chromium-browser}
+    volumes:
+      - ./secrets:/run/codo-secrets:ro
+      - ./browser-profile:/run/codo-browser-profile:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  pgdata:
