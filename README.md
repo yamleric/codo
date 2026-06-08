@@ -1,10 +1,127 @@
 # Codo
 
-**私有部署的个人信息助理。收藏、订阅、同步资料后，Codo 自动抓取、总结、分类、入库，并按你的偏好推送。**
+## 项目名
+
+Codo
+
+## 这是什么
+
+Codo 是一个私有部署的个人信息助理。它把你收藏、订阅、同步进来的网页、RSS、视频、邮件、学习通任务和收藏夹内容，自动整理成可搜索、可问答、可回顾的个人知识库。
+
+## 一句话描述
+
+**收藏、订阅、同步资料后，Codo 自动抓取、总结、分类、入库，并按你的偏好推送。**
 
 Codo 的目标不是做一个通用爬虫平台，而是把个人每天遇到的文章、RSS、视频、邮件、学习通任务、收藏夹内容沉淀成可搜索、可问答、可回顾的知识库。
 
 > 重要说明：**知乎链接当前不可用**。项目里保留了 Playwright 渲染抓取能力，但知乎目前不能作为稳定支持来源，请不要把 README 中的“网页抓取”理解为已经支持知乎。
+
+---
+
+## 怎么跑
+
+### Docker Compose 运行（推荐）
+
+clone 仓库：
+
+```bash
+git clone https://github.com/yamleric/codo.git
+cd codo
+```
+
+安装依赖：
+
+```text
+不需要 pip install -r requirements.txt。
+本项目不是 Python 项目，推荐直接使用 Docker / Docker Compose 运行。
+```
+
+配置 Unity.ai API key：
+
+```bash
+cp .env.example .env
+```
+
+编辑 `.env`，至少填写：
+
+```env
+POSTGRES_PASSWORD=change-me
+LLM_BASE_URL=https://你的-unity-ai-中转地址/v1
+LLM_API_KEY=你的-unity-ai-api-key
+LLM_MODEL=gpt-5
+```
+
+`LLM_BASE_URL` 和 `LLM_API_KEY` 可以填写 Unity.ai 赞助的 OpenAI-compatible API 中转服务地址和 Key；如果你使用其他兼容 OpenAI Chat Completions 的服务，也可以替换成对应地址和 Key。
+
+运行：
+
+```bash
+docker compose -f docker-compose.release.yml up -d
+```
+
+默认访问：
+
+```text
+http://服务器IP:8090
+```
+
+第一次访问会进入 owner setup，创建工作台登录账号和密码。
+
+> 如果使用 GitHub Release 附件部署，也可以只下载 `docker-compose.yml` 和 `env.example`。完整说明见 [docs/deploy-docker.md](docs/deploy-docker.md)。
+
+### 本地开发
+
+本地开发需要：
+
+- Go 1.26+
+- Node.js 22+
+- PostgreSQL + pgvector
+
+常用命令：
+
+```bash
+go mod download
+npm --prefix web install
+npm --prefix web run build
+go run ./cmd/api
+```
+
+---
+
+## 用了什么
+
+| 类型 | 具体实现 |
+| --- | --- |
+| LLM API | Unity.ai 赞助的 OpenAI-compatible API 中转服务；模型由 `.env` 的 `LLM_MODEL` 指定 |
+| Embedding API | OpenAI-compatible Embeddings API，可选，用于语义搜索 |
+| ASR API | OpenAI-compatible `/audio/transcriptions`，可选，用于视频无字幕时转写 |
+| 后端 | Go |
+| 前端 | Vue 3 + Vite |
+| 数据库 | PostgreSQL + pgvector |
+| 网页解析 | go-readability、goquery、Playwright |
+| RSS | gofeed |
+| 视频 | yt-dlp + FFmpeg |
+| 邮件 | go-imap + go-message |
+| 通知 | Telegram Bot、SMTP Email |
+| 部署 | Docker / Docker Compose |
+
+> 配置名沿用项目里的通用 OpenAI-compatible 适配层：`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`。Unity.ai 是 API 中转和赞助来源；模板里的 `UNITY2_API_KEY` 在 Codo 中对应 `.env` 里的 `LLM_API_KEY`。
+
+---
+
+## 主要功能
+
+- 网页链接抓取、摘要、分类、标签、入库
+- RSS / Atom 订阅巡检和自动总结
+- B站视频总结；抖音部分可用但依赖 cookies 和平台状态
+- 学习通作业 / 考试提醒
+- IMAP 邮件收件箱总结
+- 收藏夹管理和 linux.do 书签导入
+- 知识库搜索、语义搜索和问答
+- 英文资料自动翻译
+- 偏好记忆和反馈学习
+- Telegram / Email 通知
+- 日报 / 周报 / 月报推送
 
 ---
 
@@ -133,7 +250,7 @@ Codo 的目标不是做一个通用爬虫平台，而是把个人每天遇到的
 
 ---
 
-## Docker Compose 部署
+## Release 部署
 
 发布版可直接用 Docker Compose 运行，不需要本地构建源码：
 
@@ -149,8 +266,8 @@ cp env.example .env
 
 ```env
 POSTGRES_PASSWORD=change-me
-LLM_BASE_URL=https://api.openai.com/v1
-LLM_API_KEY=change-me
+LLM_BASE_URL=https://你的-unity-ai-中转地址/v1
+LLM_API_KEY=你的-unity-ai-api-key
 LLM_MODEL=gpt-5
 ```
 
