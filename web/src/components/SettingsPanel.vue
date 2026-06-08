@@ -118,6 +118,59 @@
             />
           </label>
         </div>
+
+        <label class="settings-field">
+          <span>英文自动翻译</span>
+          <div class="settings-segmented">
+            <button
+              type="button"
+              :class="{ active: form.translation.enabled }"
+              :aria-pressed="form.translation.enabled"
+              @click="form.translation.enabled = true"
+            >
+              <Languages :size="14" />
+              开启
+            </button>
+            <button
+              type="button"
+              :class="{ active: !form.translation.enabled }"
+              :aria-pressed="!form.translation.enabled"
+              @click="form.translation.enabled = false"
+            >
+              <X :size="14" />
+              关闭
+            </button>
+          </div>
+        </label>
+
+        <div class="settings-pair">
+          <label class="settings-field">
+            <span>翻译作用</span>
+            <div class="settings-segmented three">
+              <button
+                v-for="option in translationScopeOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: form.translation.scope === option.value }"
+                :aria-pressed="form.translation.scope === option.value"
+                @click="form.translation.scope = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </label>
+
+          <label class="settings-field">
+            <span>翻译上限</span>
+            <input
+              v-model.number="form.translation.max_chars"
+              type="number"
+              min="1000"
+              max="30000"
+              step="1000"
+            />
+          </label>
+        </div>
       </section>
 
       <section class="settings-card runtime-config-card">
@@ -505,6 +558,13 @@ interface SettingsForm {
   language: SummaryLanguage
   max_summary_chars: number
   filter_keywords: string[]
+  translation: {
+    enabled: boolean
+    mode: string
+    target_language: string
+    scope: string
+    max_chars: number
+  }
   daily_report: {
     enabled: boolean
     email: string
@@ -543,6 +603,13 @@ const form = reactive<SettingsForm>({
   language: 'zh-CN',
   max_summary_chars: 300,
   filter_keywords: [],
+  translation: {
+    enabled: false,
+    mode: 'english_only',
+    target_language: 'zh-CN',
+    scope: 'summary_knowledge',
+    max_chars: 8000,
+  },
   daily_report: {
     enabled: false,
     email: '',
@@ -579,6 +646,12 @@ const summaryStyleOptions = [
 const languageOptions = [
   { value: 'zh-CN' as const, label: '中文' },
   { value: 'en' as const, label: 'English' },
+]
+
+const translationScopeOptions = [
+  { value: 'summary_knowledge', label: '摘要+知识库' },
+  { value: 'summary', label: '仅摘要' },
+  { value: 'knowledge', label: '仅知识库' },
 ]
 
 const reportFrequencyOptions = [
@@ -618,7 +691,7 @@ const reportScheduleText = computed(() => {
 const runtimeItems = computed(() => {
   const runtime = settings.value?.runtime
   return [
-    { label: 'LLM', detail: '过滤与摘要', configured: !!runtime?.llm_configured, icon: KeyRound },
+    { label: 'LLM', detail: '过滤/摘要/翻译', configured: !!runtime?.llm_configured, icon: KeyRound },
     { label: 'Embedding', detail: '知识检索', configured: !!runtime?.embedding_configured, icon: SearchCheck },
     { label: 'ASR', detail: '视频转写', configured: !!runtime?.asr_configured, icon: Mic },
     { label: 'Telegram', detail: '消息推送', configured: !!runtime?.telegram_configured, icon: MessageCircle },
@@ -652,6 +725,7 @@ async function save() {
   savedMessage.value = ''
   try {
     form.max_summary_chars = clampSummaryChars(form.max_summary_chars)
+    form.translation = normalizeTranslation(form.translation)
     form.daily_report = normalizeDailyReport(form.daily_report)
     form.filter_keywords = normalizeKeywords(form.filter_keywords)
     const payload: UserSettingsPatch = {
@@ -661,6 +735,7 @@ async function save() {
       language: form.language,
       max_summary_chars: form.max_summary_chars,
       filter_keywords: form.filter_keywords,
+      translation: form.translation,
       daily_report: form.daily_report,
       runtime_config: runtimeConfigPatchFromForm(),
     }
@@ -685,6 +760,13 @@ function hydrate(next: UserSettings) {
   form.language = next.language
   form.max_summary_chars = next.max_summary_chars
   form.filter_keywords = [...next.filter_keywords]
+  form.translation = normalizeTranslation(next.translation || {
+    enabled: false,
+    mode: 'english_only',
+    target_language: 'zh-CN',
+    scope: 'summary_knowledge',
+    max_chars: 8000,
+  })
   form.daily_report = normalizeDailyReport(next.daily_report || {
     enabled: false,
     email: '',
@@ -766,6 +848,7 @@ function serializeForm() {
     language: form.language,
     max_summary_chars: Number.isFinite(form.max_summary_chars) ? Math.round(form.max_summary_chars) : 300,
     filter_keywords: normalizeKeywords(form.filter_keywords),
+    translation: normalizeTranslation(form.translation),
     daily_report: normalizeDailyReport(form.daily_report),
     runtime_config: normalizeRuntimeConfigForm(form.runtime_config),
   })
@@ -886,6 +969,26 @@ function normalizeKeywords(values: string[]) {
 function clampSummaryChars(value: number) {
   const numeric = Number.isFinite(value) ? value : 300
   return Math.min(1000, Math.max(120, Math.round(numeric)))
+}
+
+function normalizeTranslation(translation: SettingsForm['translation']) {
+  return {
+    enabled: !!translation.enabled,
+    mode: 'english_only',
+    target_language: 'zh-CN',
+    scope: normalizeTranslationScope(translation.scope),
+    max_chars: clampTranslationMaxChars(translation.max_chars),
+  }
+}
+
+function normalizeTranslationScope(value: string) {
+  if (value === 'summary' || value === 'knowledge') return value
+  return 'summary_knowledge'
+}
+
+function clampTranslationMaxChars(value: number) {
+  const numeric = Number.isFinite(value) ? value : 8000
+  return Math.min(30000, Math.max(1000, Math.round(numeric)))
 }
 
 function normalizeDailyReport(report: SettingsForm['daily_report']) {

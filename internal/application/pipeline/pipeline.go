@@ -19,6 +19,10 @@ type Summarizer interface {
 	Summarize(ctx context.Context, t *task.Task, content string) (string, error)
 }
 
+type Translator interface {
+	Translate(ctx context.Context, userID, content string) (task.Translation, error)
+}
+
 type Classifier interface {
 	Classify(ctx context.Context, content string) (string, error)
 }
@@ -273,11 +277,13 @@ type WebPagePipeline struct {
 	fetcher    Fetcher
 	filterer   Filterer
 	summarizer Summarizer
+	translator Translator
 }
 
 func NewWebPage(f Fetcher, fl Filterer, su Summarizer, st Store, n Notifier, on OnStatusFunc) *WebPagePipeline {
 	categorizer, _ := su.(Categorizer)
-	return &WebPagePipeline{stages: newStages(st, n, on, categorizer), fetcher: f, filterer: fl, summarizer: su}
+	translator, _ := su.(Translator)
+	return &WebPagePipeline{stages: newStages(st, n, on, categorizer), fetcher: f, filterer: fl, summarizer: su, translator: translator}
 }
 
 func (p *WebPagePipeline) ContentType() task.ContentType { return task.ContentWebPage }
@@ -320,16 +326,67 @@ func (p *WebPagePipeline) Run(ctx context.Context, t *task.Task) error {
 	if err := p.setStatus(ctx, t, task.StatusAnalyzing); err != nil {
 		return err
 	}
+	analysisContent := content
+	if translation, ok := p.translate(ctx, t, content); ok && useTranslationForSummary(translation) {
+		analysisContent = translation.Content
+	}
 	start = time.Now()
-	summary, err := p.summarizer.Summarize(ctx, t, content)
+	summary, err := p.summarizer.Summarize(ctx, t, analysisContent)
 	if err != nil {
 		return p.fail(ctx, t, "生成摘要", err, start)
 	}
 	t.SetSummary(summary)
 	p.addStep(ctx, t, "生成摘要", task.StepOK, "", start)
-	p.categorize(ctx, t, content+"\n\n摘要：\n"+summary)
+	p.categorize(ctx, t, analysisContent+"\n\n摘要：\n"+summary)
 
 	return p.saveAndNotify(ctx, t, summary)
+}
+
+func (p *WebPagePipeline) translate(ctx context.Context, t *task.Task, content string) (task.Translation, bool) {
+	if p.translator == nil {
+		return task.Translation{}, false
+	}
+	start := time.Now()
+	translation, err := p.translator.Translate(ctx, t.UserID, content)
+	if err != nil {
+		p.addStep(ctx, t, "自动翻译", task.StepError, err.Error(), start)
+		return task.Translation{}, false
+	}
+	switch translation.Status {
+	case "translated":
+		t.SetMetadataValue("translation", translation)
+		p.addStep(ctx, t, "自动翻译", task.StepOK, translationStepDetail(translation), start)
+		return translation, true
+	case "skipped":
+		detail := translation.Reason
+		if detail == "not english" {
+			detail = "非英文内容"
+		}
+		p.addStep(ctx, t, "自动翻译", task.StepSkipped, detail, start)
+	case "disabled", "":
+	default:
+		p.addStep(ctx, t, "自动翻译", task.StepSkipped, translation.Reason, start)
+	}
+	return translation, false
+}
+
+func useTranslationForSummary(translation task.Translation) bool {
+	if strings.TrimSpace(translation.Content) == "" {
+		return false
+	}
+	return translation.Scope == "summary" || translation.Scope == "summary_knowledge"
+}
+
+func translationStepDetail(translation task.Translation) string {
+	target := translation.TargetLang
+	if target == "" {
+		target = "zh-CN"
+	}
+	detail := fmt.Sprintf("英文 -> %s，%d 字", target, translation.TranslatedChars)
+	if translation.Truncated {
+		detail += "，已按上限截断"
+	}
+	return detail
 }
 
 // ── VideoPipeline ─────────────────────────────────────────────────────────────

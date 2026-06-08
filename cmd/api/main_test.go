@@ -190,6 +190,40 @@ func TestApplySettingsPatchAcceptsEmailNotifyChannel(t *testing.T) {
 	}
 }
 
+func TestApplySettingsPatchUpdatesTranslationPolicy(t *testing.T) {
+	enabled := true
+	mode := "english_only"
+	target := "zh-CN"
+	scope := "knowledge"
+	maxChars := 12000
+	updated, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{
+		Translation: &translationPatch{
+			Enabled:        &enabled,
+			Mode:           &mode,
+			TargetLanguage: &target,
+			Scope:          &scope,
+			MaxChars:       &maxChars,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := updated.ModelPolicy.Translation
+	if !policy.Enabled || policy.Mode != mode || policy.TargetLanguage != target || policy.Scope != scope || policy.MaxChars != maxChars {
+		t.Fatalf("translation patch not applied: %#v", policy)
+	}
+}
+
+func TestApplySettingsPatchRejectsInvalidTranslationScope(t *testing.T) {
+	scope := "everything"
+	_, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{
+		Translation: &translationPatch{Scope: &scope},
+	})
+	if err == nil {
+		t.Fatal("expected invalid translation scope error")
+	}
+}
+
 func storeDefaultSettings() store.UserSettings {
 	return store.UserSettings{
 		UserID:         "demo-user",
