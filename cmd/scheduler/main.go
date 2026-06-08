@@ -173,7 +173,7 @@ func runEmail(ctx context.Context, st *store.Store, router *pipeline.Router) {
 }
 
 func dailyReportService(st *store.Store) *dailyreport.Service {
-	return dailyreport.NewService(st, &runtimeconfig.EmailSender{Store: st})
+	return dailyreport.NewService(st, &runtimeconfig.EmailSender{Store: st}, &runtimeconfig.TelegramSender{Store: st})
 }
 
 func runDailyReport(ctx context.Context, service *dailyreport.Service) {

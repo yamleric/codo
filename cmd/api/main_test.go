@@ -95,14 +95,26 @@ func TestApplySettingsPatchUpdatesDailyReport(t *testing.T) {
 	hour := 8
 	timezone := "Asia/Shanghai"
 	maxItems := 12
+	frequency := "weekly"
+	channels := []string{"email", "telegram"}
+	sources := []string{"rss", "linux_do"}
+	categories := []string{"AI", "产品"}
+	categoryMode := "include"
+	splitByCategory := true
 
 	updated, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{
 		DailyReport: &dailyReportPatch{
-			Enabled:  &enabled,
-			Email:    &email,
-			Hour:     &hour,
-			Timezone: &timezone,
-			MaxItems: &maxItems,
+			Enabled:         &enabled,
+			Email:           &email,
+			Hour:            &hour,
+			Timezone:        &timezone,
+			MaxItems:        &maxItems,
+			Frequency:       &frequency,
+			Channels:        &channels,
+			Sources:         &sources,
+			Categories:      &categories,
+			CategoryMode:    &categoryMode,
+			SplitByCategory: &splitByCategory,
 		},
 	})
 	if err != nil {
@@ -112,8 +124,28 @@ func TestApplySettingsPatchUpdatesDailyReport(t *testing.T) {
 		updated.DailyReport.Email != email ||
 		updated.DailyReport.Hour != hour ||
 		updated.DailyReport.Timezone != timezone ||
-		updated.DailyReport.MaxItems != maxItems {
+		updated.DailyReport.MaxItems != maxItems ||
+		updated.DailyReport.Frequency != frequency ||
+		len(updated.DailyReport.Channels) != 2 ||
+		len(updated.DailyReport.Sources) != 2 ||
+		updated.DailyReport.CategoryMode != categoryMode ||
+		len(updated.DailyReport.Categories) != 2 ||
+		!updated.DailyReport.SplitByCategory {
 		t.Fatalf("daily report patch not applied: %#v", updated.DailyReport)
+	}
+}
+
+func TestApplySettingsPatchAllowsTelegramOnlyDailyReportWithoutEmail(t *testing.T) {
+	enabled := true
+	channels := []string{"telegram"}
+	updated, err := applySettingsPatch(storeDefaultSettings(), settingsPatch{
+		DailyReport: &dailyReportPatch{Enabled: &enabled, Channels: &channels},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.DailyReport.Enabled || len(updated.DailyReport.Channels) != 1 || updated.DailyReport.Channels[0] != "telegram" {
+		t.Fatalf("expected telegram-only daily report, got %#v", updated.DailyReport)
 	}
 }
 

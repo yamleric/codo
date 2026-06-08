@@ -122,6 +122,22 @@ func (s *EmailSender) Send(ctx context.Context, recipients []string, subject, bo
 	return email.Send(ctx, recipients, subject, body)
 }
 
+type TelegramSender struct {
+	Store *store.Store
+}
+
+func (s *TelegramSender) Send(ctx context.Context, userID, message string) error {
+	cfg := Resolved(ctx, s.Store)
+	if strings.TrimSpace(cfg.Telegram.ChatID) == "" {
+		return fmt.Errorf("notify: telegram chat id not set")
+	}
+	telegram, err := notify.NewTelegramWithToken(cfg.Telegram.Token)
+	if err != nil {
+		return err
+	}
+	return telegram.Send(ctx, cfg.Telegram.ChatID, message)
+}
+
 func EmailConfig(config store.SMTPRuntimeConfig) notify.EmailConfig {
 	return notify.EmailConfig{
 		Host:     config.Host,

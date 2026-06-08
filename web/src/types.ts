@@ -285,6 +285,12 @@ export interface DailyReportSettings {
   hour: number
   timezone: string
   max_items: number
+  frequency: 'daily' | 'weekly' | 'monthly' | string
+  channels: string[]
+  sources: string[]
+  categories: string[]
+  category_mode: 'all' | 'include' | 'exclude' | string
+  split_by_category: boolean
 }
 
 export interface UserSettings {
