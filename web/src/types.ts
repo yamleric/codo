@@ -23,16 +23,24 @@ export interface Task {
 export interface Subscription {
   id: string
   user_id: string
-  source_type: 'rss' | 'chaoxing' | string
+  source_type: 'rss' | 'chaoxing' | 'email' | string
   feed_url: string
   title: string
   category: string
   account: string
+  provider: string
+  host: string
+  port: number
+  mailbox: string
   password_configured: boolean
   cookie_configured: boolean
   alert_hours: number
   notify_new: boolean
   notify_due: boolean
+  notify_important: boolean
+  sync_unread_only: boolean
+  since_days: number
+  max_messages: number
   last_fetched_at: string | null
   last_error: string
   last_error_at: string | null

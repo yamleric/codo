@@ -29,7 +29,7 @@ export const api = {
     axios.get<Subscription[]>('/api/subscriptions').then(r => r.data),
 
   addSubscription: (payload: {
-    source_type?: 'rss' | 'chaoxing'
+    source_type?: 'rss' | 'chaoxing' | 'email'
     feed_url?: string
     title?: string
     category?: string
@@ -39,10 +39,18 @@ export const api = {
     alert_hours?: number
     notify_new?: boolean
     notify_due?: boolean
+    provider?: string
+    host?: string
+    port?: number
+    mailbox?: string
+    since_days?: number
+    max_messages?: number
+    notify_important?: boolean
+    sync_unread_only?: boolean
   }) =>
     axios.post<{ id: string }>('/api/subscriptions', payload).then(r => r.data),
 
-  updateSubscription: (id: string, payload: Partial<Pick<Subscription, 'feed_url' | 'title' | 'category' | 'enabled' | 'account' | 'alert_hours' | 'notify_new' | 'notify_due'>> & { password?: string; cookie?: string }) =>
+  updateSubscription: (id: string, payload: Partial<Pick<Subscription, 'feed_url' | 'title' | 'category' | 'enabled' | 'account' | 'alert_hours' | 'notify_new' | 'notify_due' | 'provider' | 'host' | 'port' | 'mailbox' | 'since_days' | 'max_messages' | 'notify_important' | 'sync_unread_only'>> & { password?: string; cookie?: string }) =>
     axios.patch(`/api/subscriptions/${id}`, payload),
 
   deleteSubscription: (id: string) =>

@@ -107,6 +107,7 @@
   <tr><td>任务队列</td><td>Redis Streams</td><td>异步任务调度，支持重试和状态追踪</td></tr>
   <tr><td>网页抓取</td><td>Playwright + Flaresolverr</td><td>云端浏览器，处理 JS 渲染、懒加载、CF 防护</td></tr>
   <tr><td>视频抓取</td><td>yt-dlp + FFmpeg</td><td>提取公开视频字幕和音频；需要授权态的平台可配置 cookies 文件或浏览器 cookies 来源</td></tr>
+  <tr><td>邮件读取</td><td>go-imap + go-message</td><td>通过 IMAP 只读同步个人收件箱，解析 MIME 正文后进入摘要、知识库和日报流程</td></tr>
   <tr><td>容器化</td><td>Docker</td><td>每个服务独立打包，环境一致</td></tr>
   <tr><td>本地开发</td><td>docker-compose</td><td>一条命令启动全部服务</td></tr>
   <tr><td>云端部署</td><td>Railway</td><td>推代码自动部署，按用量计费</td></tr>
@@ -123,3 +124,10 @@
 - 一次部署，手机 / 电脑浏览器均可访问
 - 数据自己掌控，私有部署
 - 先解决自己的问题，再开源
+
+## 开源参考与依赖
+
+邮件助理采用通用开源邮箱工具常见的实现路径：IMAP 只读同步收件箱，MIME 解析正文，AI 做重要性判断和摘要，重要邮件走即时通知，普通邮件进入每日总结和知识库。
+
+- [emersion/go-imap](https://github.com/emersion/go-imap)：IMAP 客户端，用于只读连接邮箱和拉取邮件。
+- [emersion/go-message](https://github.com/emersion/go-message)：MIME 邮件解析，用于提取纯文本/HTML 正文并跳过附件。

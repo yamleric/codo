@@ -43,6 +43,7 @@ func main() {
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, &runtimeconfig.Notifier{Store: st}, nil),
 		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, &runtimeconfig.Notifier{Store: st}, nil),
+		pipeline.NewEmail(llmClient, llmClient, st, &runtimeconfig.Notifier{Store: st}, nil),
 	)
 	if err != nil {
 		slog.Error("router init", "err", err)
@@ -59,6 +60,7 @@ func main() {
 	// run immediately on start
 	runRSS(ctx, st, router)
 	runChaoxing(ctx, st)
+	runEmail(ctx, st, router)
 	runDailyReport(ctx, reportService)
 	runEmbeddingBackfill(ctx, knowledgeService)
 
@@ -67,6 +69,7 @@ func main() {
 		case <-tick.C:
 			runRSS(ctx, st, router)
 			runChaoxing(ctx, st)
+			runEmail(ctx, st, router)
 			runDailyReport(ctx, reportService)
 			runEmbeddingBackfill(ctx, knowledgeService)
 		case <-ctx.Done():
@@ -143,6 +146,29 @@ func runChaoxing(ctx context.Context, st *store.Store) {
 			continue
 		}
 		slog.Info("chaoxing fetched", "subscription", sub.ID, "items", result.Items, "new_notified", result.NewNotified, "due_notified", result.DueNotified)
+	}
+}
+
+func runEmail(ctx context.Context, st *store.Store, router *pipeline.Router) {
+	subs, err := st.ListActiveEmailSubscriptions(ctx)
+	if err != nil {
+		slog.Error("list email subs", "err", err)
+		return
+	}
+	if len(subs) == 0 {
+		return
+	}
+	slog.Info("email inbox run", "subscriptions", len(subs))
+	service := sourcecheck.NewEmailService(st, router, nil)
+	for _, sub := range subs {
+		runCtx, cancel := context.WithTimeout(ctx, 3*time.Minute)
+		result, err := service.Run(runCtx, sub)
+		cancel()
+		if err != nil {
+			slog.Warn("email inbox fetch failed", "subscription", sub.ID, "err", err)
+			continue
+		}
+		slog.Info("email inbox fetched", "subscription", sub.ID, "items", result.Items, "analyzed", result.Analyzed, "important", result.Important, "normal", result.Normal, "spam", result.Spam, "failed", result.Failed)
 	}
 }
 
