@@ -1,447 +1,375 @@
-# Codo 架构设计 v2
+# Codo 架构设计
 
-> 核心问题：信息过载。
-> 核心解法：确定性工作流做骨架，AI 只作为可控的能力节点。
+> 当前版本定位：单人自用的信息摄取、摘要、知识库和通知工作台。
+> 核心解法：确定性工作流负责流程编排，AI 只作为过滤、摘要、分类、翻译和问答节点。
+
+本文档描述当前代码库已经落地的架构。`FEATURES.md` 属于本地需求和路线图文档，不作为当前架构依据，也不再同步到远端仓库。
 
 ---
 
 ## 设计原则
 
-1. **工作流控制流程，模型只处理内容** — 代码决定"做什么"，模型决定"怎么写"
-2. **模型要被注册、路由、限权、观测** — 不在业务代码里写死模型名
-3. **过滤优先** — 推送给用户的每条内容都经过价值判断，不制造新的信息过载
-4. **每次运行都可追踪、可重试、可恢复** — Run + Step + Trace 完整落库
-5. **业务与基础设施隔离** — 换模型、换存储只动 infra，不污染业务层
+1. **流程由代码控制**：抓取、过滤、摘要、入库、通知的顺序由 Pipeline 固定，模型不决定系统行为。
+2. **内容类型保持稳定**：`content_type` 只表示处理方式，主题用 `category` 和 `tags` 表达。
+3. **过滤不阻断用户主动收藏**：手动提交和收藏来源不走丢弃过滤，避免误杀用户明确想保存的内容。
+4. **配置可在前台编辑**：LLM、Embedding、ASR、Telegram、SMTP 和用户通知策略可从工作台维护。
+5. **密钥不回显**：API 只返回 `*_configured` 状态，不返回 API key、token、SMTP password、Cookie 等真实密钥。
+6. **单人单用优先**：保留鉴权和会话，但不引入团队、角色、管理员体系。
 
 ---
 
-## 项目目录结构
-
-```
-codo/
-├── cmd/
-│   ├── api/             # HTTP 服务入口
-│   ├── worker/          # Pipeline Worker 入口
-│   └── scheduler/       # 定时任务入口
-│
-├── internal/
-│   ├── domain/          # 领域类型，不依赖任何外部库
-│   │   └── task/        # Task（聚合根）, Step, Status, FilterDecision
-│   │                    # SourceType, ContentType
-│   │                    # 所有状态变更通过 Task 方法，并发安全
-│   │
-│   ├── application/     # 业务用例编排，依赖 domain + 基础设施接口
-│   │   └── pipeline/    # Router + 4个 Pipeline 实现
-│   │                    # 接口：Fetcher, Filterer, Summarizer,
-│   │                    #       Classifier, Extractor, Store, Notifier
-│   │                    # 每个 Pipeline 只注入自己需要的接口（ISP）
-│   │
-│   ├── infra/           # 具体实现，可替换，不影响业务层
-│   │   ├── llm/         # OpenAI-compatible 中转站适配器
-│   │   │                # 实现 Filterer / Summarizer / Classifier / Extractor
-│   │   │                # 通过 /v1/chat/completions，BaseURL 指向中转站
-│   │   ├── fetcher/     # HTTP / Playwright / Flaresolverr / yt-dlp
-│   │   ├── sources/     # RSS(gofeed) / WechatMP / LinuxDo / Chaoxing / IMAP
-│   │   ├── store/       # PostgreSQL + pgvector（实现 Store 接口）
-│   │   ├── queue/       # riverqueue/river（Postgres 事务内入队）
-│   │   └── notify/      # Telegram / Email / 微信
-│   │
-│   └── transport/
-│       └── http/        # Webhook 接收、看板 API、WebSocket
-│
-├── web/                 # Vue 3 看板
-├── docker/
-├── docker-compose.yml
-└── config.example.yaml
-```
-
----
-
-## 系统架构
-
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        信息入口层                            │
-│                                                             │
-│   主动触发                    被动订阅（Scheduler 定时拉）   │
-│   Telegram Bot                RSS / 微信公众号（RSSHub）     │
-│   Web 网页                    学习通 / linux.do             │
-│                               邮件 IMAP / 群消息            │
-└─────────────────────────┬───────────────────────────────────┘
-                          │ 写入统一 Task 格式
-┌─────────────────────────┬───────────────────────────────┐
-│                    任务队列（riverqueue/river）            │
-│              Postgres 事务内入队，与业务数据强一致          │
-└─────────────────────────┬───────────────────────────────┘
-                          │
-┌─────────────────────────▼───────────────────────────────────┐
-│                      Pipeline Worker                         │
-│                                                             │
-│  按 ContentType 路由到对应 Pipeline：                        │
-│                                                             │
-│  WebPagePipeline   fetch → filter → summarize → save → notify│
-│  VideoPipeline     subtitle → filter → summarize → save → notify│
-│  EmailPipeline     parse → classify → digest → notify       │
-│  MessagePipeline   collect → filter → extract → notify      │
-│                                                             │
-│  每个 Pipeline 内部：代码控制步骤顺序，LLM 只在节点内工作   │
-└──────────────┬──────────────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────────────┐
-│                      模型路由层                              │
-│                                                             │
-│  ModelRouter.Resolve(task) → 按任务类型选模型               │
-│                                                             │
-│  filter（过滤判断）   → 轻量模型（省成本）                   │
-│  summarize（摘要）    → 主力模型（高质量）                   │
-│  translate（翻译）    → 主力模型                             │
-│  classify（邮件分类） → 轻量模型                             │
-│  embedding（入库）    → embedding 模型                      │
-└──────────────┬──────────────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────────────┐
-│                     LLM 调用层（infra/llm）                  │
-│                                                             │
-│  统一使用 OpenAI-compatible /v1/chat/completions 接口        │
-│  BaseURL 指向中转站，支持任意兼容模型（Claude / GPT / 等）   │
-│  Filter / Classify 强制 JSON 输出，结果 normalize 防模型漂移 │
-│  截断超长输入，防止 context window 溢出                      │
-└──────────────┬──────────────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────────────┐
-│                        数据层                                │
-│                                                             │
-│  PostgreSQL                         Redis（仅缓存）          │
-│  ├─ tasks（任务 + Steps）            ├─ 去重 Set              │
-│  ├─ task_steps（步骤记录）           └─ 会话缓存              │
-│  ├─ river_jobs（任务队列，river）                             │
-│  ├─ model_calls（LLM 调用 Trace）                            │
-│  ├─ articles（知识库）                                        │
-│  ├─ subscriptions（订阅源配置）                               │
-│  └─ users（用户配置 + 模型策略）                              │
-└──────────────┬──────────────────────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────────────────────┐
-│               可观测层 / Agent 看板（WebSocket）              │
-│                                                             │
-│  ├─ 实时任务状态（每步进度）                                  │
-│  ├─ 今日：处理 / 过滤丢弃 / 推送 统计                         │
-│  ├─ 模型调用次数 / Token 用量                                 │
-│  ├─ 失败任务 + 原因 + 一键重试                                │
-│  └─ 知识库增长曲线                                           │
-└─────────────────────────────────────────────────────────────┘
-```
-
----
-
-## 视频内容处理
-
-VideoPipeline 用于处理用户粘贴的 B站 / 抖音公开链接。入口层先从用户输入中抽取第一个 `http(s)` URL，再根据域名识别为 `ContentVideo`：
-
-- B站：`bilibili.com`、`b23.tv`、`bili2233.cn`
-- 抖音：`douyin.com`、`v.douyin.com`、`iesdouyin.com`
-
-执行流程：
+## 当前服务拓扑
 
 ```text
-解析链接 → yt-dlp 获取元数据 → 优先提取字幕 → 无字幕则下载音频 → ffmpeg 切片 → ASR 转写 → LLM 总结 → 入库 / 通知
+浏览器工作台
+  │
+  │  HTTPS
+  ▼
+Nginx / Caddy
+  │
+  │  反向代理
+  ▼
+cmd/api
+  ├─ Web UI 静态资源
+  ├─ /api/* 工作台接口
+  ├─ /ws 任务状态推送
+  └─ 手动链接、收藏夹导入、设置、搜索、问答
+
+cmd/scheduler
+  ├─ RSS 巡检
+  ├─ 学习通作业/考试巡检
+  ├─ 邮箱收件箱巡检
+  ├─ 日报/周报/月报发送
+  └─ 知识库 embedding 回填
+
+PostgreSQL
+  ├─ 业务数据
+  ├─ pg_trgm 关键词召回
+  └─ pgvector 语义召回
 ```
 
-当前实现把视频抓取封装在 `internal/infra/fetcher.VideoFetcher`，主 Pipeline 只依赖 `Fetcher` 接口。这样后续可以把 `yt-dlp + ffmpeg + ASR` 迁移到独立 `video-fetcher` sidecar，而不用改业务编排。
-
-运行时配置：
-
-- `YTDLP_BIN`：yt-dlp 可执行文件，默认 `yt-dlp`
-- `FFMPEG_BIN`：ffmpeg 可执行文件，默认 `ffmpeg`
-- `VIDEO_SUB_LANGS`：字幕语言优先级，默认中文优先、英文兜底
-- `VIDEO_MAX_DURATION_SECONDS`：视频最长处理时长，默认 2 小时
-- `ASR_BASE_URL` / `ASR_API_KEY` / `ASR_MODEL`：OpenAI-compatible `/audio/transcriptions` 配置；仅显式配置 ASR endpoint 时启用，模型默认 `whisper-1`
-- `PLAYWRIGHT_DRIVER_PATH` / `PLAYWRIGHT_NODEJS_PATH` / `PLAYWRIGHT_CHROMIUM_EXECUTABLE`：浏览器渲染抓取配置；知乎链接默认使用 Playwright + Chromium 渲染后提取正文，Alpine 镜像使用系统 Node 执行 Playwright driver
-- `YTDLP_COOKIES_FILE`：可选 Cookie 文件路径，推荐指向容器内 `/run/codo-secrets/*.txt`
-- `YTDLP_COOKIES_FROM_BROWSER`：可选浏览器 Cookie 来源，直接透传给 `yt-dlp --cookies-from-browser`；生产默认预留 `./browser-profile:/run/codo-browser-profile:ro`
-- `YTDLP_USER_AGENT` / `YTDLP_REFERER`：可选请求头覆盖；默认按 B站 / 抖音平台选择浏览器 UA 和 referer
-
-授权态接入参考 `yt-dlp` / `gallery-dl` 等成熟下载器的通用模式：优先使用显式导出的 cookies 文件，必要时才读取用户授权的浏览器 profile。生产部署通过 `./secrets:/run/codo-secrets:ro` 只读挂载 Cookie 文件，通过 `./browser-profile:/run/codo-browser-profile:ro` 只读挂载浏览器 profile；`secrets/`、`browser-profile/`、`.env`、构建产物都被 Git / Docker 忽略，不写入日志、数据库或仓库。
-
-合规边界：只处理用户提交的公开或已授权内容，不绕过 DRM、会员限制、私密内容或平台访问控制。
+当前发布版使用 `api + scheduler + postgres`。`cmd/worker` 仍保留为可扩展入口，但不是当前 Docker Compose 发布路径的主链路。当前实现没有 Redis、River 队列或 Railway 部署依赖。
 
 ---
 
-## 订阅源管理
+## 目录结构
 
-订阅源采用轻量的管理模型：结构化字段仍保存在 `subscriptions.config` JSON 中，避免为不同来源的配置字段频繁迁移。稳定、高频、需要去重和提醒状态的检测结果写入 `source_items`。
-
-当前支持：
-
-- 添加 RSS / Atom Feed
-- 添加学习通巡检源，使用学习通账号密码或 Cookie 授权
-- 展示全部订阅源，包括已暂停订阅
-- 标题和分组，用于类似 RSS 阅读器里的 folder/category 管理
-- 启用 / 暂停自动巡检
-- 手动刷新单个订阅源
-- 删除订阅源
-- 记录最近一次拉取错误，前端按健康状态展示
-
-这个设计参考了成熟 RSS 阅读器的常见能力：Miniflux 的 categories / disabled feeds / OPML 思路、FreshRSS 的按分类查看、NetNewsWire 的 folders 和后台刷新、Tiny Tiny RSS 的 categories / labels。Codo 当前先实现“分组 + 健康状态 + 启停 + 手动刷新”，OPML 导入导出和复杂过滤规则留到订阅源规模变大后再加。
-
-学习通源参考了 SuperStarInfoFetch 的课程 / 作业 / 考试字段抽象、chaoxing_qq_notification 的“抓取后入库并按截止时间提醒”流程，以及 xxt-unwork-push / xxt_work_notice 的未完成作业、24 小时内截止提醒思路。Codo 未复制这些项目代码，也未把它们作为运行依赖；当前使用 Go + goquery 独立实现登录、列表解析、去重入库和通知。
-
-学习通配置在前台订阅源管理里完成：选择“学习通”后填写账号、密码或 Cookie、提前提醒小时数，并选择是否开启新作业 / 新考试提醒与临近截止提醒。后端只向前端返回 `password_configured` / `cookie_configured`，不回显密码或 Cookie。
-
-学习通展示页借鉴 [Linkwarden](https://github.com/linkwarden/linkwarden) / [Karakeep](https://github.com/karakeep-app/karakeep) / [wallabag](https://github.com/wallabag/wallabag) 这类成熟个人信息管理项目的“概览统计 + 搜索 + 标签/状态筛选 + 紧凑列表”组织方式，但不引入它们作为运行依赖。Codo 的展示页只读取 `source_items` 中最近一次成功巡检看到的作业 / 考试结果，负责查看待处理、临近截止、课程和状态，不暴露学习通密码或 Cookie。
-
----
-
-## 核心表设计
-
-```sql
--- 任务运行记录
-tasks (id, user_id, source, content_type, url, raw_content,
-       status, filter_decision, summary, error,
-       created_at, updated_at)
-
--- 每步执行记录（看板数据来源）
-task_steps (id, task_id, label, status, detail, duration_ms, created_at)
-
--- LLM 调用 Trace（可观测 + 成本追踪）
-model_calls (id, task_id, step, model, input_tokens, output_tokens,
-             latency_ms, error, created_at)
-
--- 知识库
-articles (id, user_id, task_id, url, title, source, content_type,
-          content, summary, category, tags, metadata jsonb,
-          published_at, embedding vector(1536), created_at)
-
-article_chunks (id, article_id, user_id, chunk_index, content,
-                token_estimate, embedding vector(1536), created_at,
-                updated_at)
-
--- 订阅源配置
-subscriptions (id, user_id, source_type, config jsonb,
-               last_fetched_at, enabled, created_at)
-
--- 来源检测结果（学习通作业 / 考试等）
-source_items (id, user_id, subscription_id, source_type, item_type,
-              external_id, course, title, status, url, due_at,
-              payload jsonb, first_seen_at, last_seen_at,
-              new_notified_at, due_notified_at,
-              created_at, updated_at)
-
--- 用户配置（含过滤规则）
-users (id, username, password_hash, auth_enabled, telegram_id,
-       filter_keywords, notify_channel, model_policy jsonb,
-       created_at, updated_at)
-
--- 单人工作台 session
-auth_sessions (id, user_id, token_hash, expires_at,
-               created_at, last_seen_at)
-
--- 实例级运行配置（LLM / Embedding / ASR / Telegram / SMTP）
-app_settings (key, value jsonb, updated_at)
-
--- 日报发送记录（避免同一天重复发送）
-daily_reports (id, user_id, report_date, status, item_count,
-               last_error, sent_at, created_at, updated_at)
-
--- 内容反馈与偏好记忆
-content_feedback (id, user_id, target_type, target_id, rating,
-                  intent, comment, source, created_at, updated_at)
-
-user_memories (id, user_id, memory_type, content, confidence,
-               source_type, source_id, embedding vector(1536),
-               disabled_at, created_at, updated_at)
-
-preference_profiles (user_id, memory_enabled, profile_json,
-                     version, created_at, updated_at)
+```text
+codo/
+├── cmd/
+│   ├── api/                 # HTTP API、Web UI、鉴权、WebSocket
+│   ├── scheduler/           # 订阅巡检、日报、embedding 回填
+│   └── worker/              # 预留 worker 入口
+│
+├── internal/
+│   ├── domain/task/         # Task 聚合、状态、来源、内容类型、分类、翻译元数据
+│   ├── application/
+│   │   ├── ingest/          # URL 规范化、内容类型识别
+│   │   ├── knowledge/       # 搜索、问答、embedding 回填
+│   │   ├── pipeline/        # WebPage / Video / Email / Message Pipeline
+│   │   ├── report/          # 日报、周报、月报汇总
+│   │   └── sourcecheck/     # 学习通、邮箱等来源巡检用例
+│   └── infra/
+│       ├── auth/            # 密码和 session token 处理
+│       ├── db/              # PostgreSQL 连接和迁移
+│       ├── fetcher/         # HTTP 抓取、Playwright 渲染、yt-dlp 视频文字稿
+│       ├── llm/             # OpenAI-compatible LLM / Embedding / ASR 适配
+│       ├── notify/          # Telegram、SMTP Email
+│       ├── runtimeconfig/   # 数据库配置 + 环境变量兜底
+│       ├── sources/         # RSS、学习通、IMAP 实现
+│       └── store/           # PostgreSQL 存储实现
+│
+├── web/                     # Vue 3 工作台
+├── docker/                  # Caddy、初始化 SQL
+├── docker-compose.release.yml
+├── docker-compose.prod.yml
+└── Dockerfile
 ```
 
 ---
 
-## 单人鉴权与配置管理
+## 入口与任务流
 
-Codo 按单人单用设计，不维护角色、团队或复杂管理员系统。首次访问工作台时，如果 `DEFAULT_USER_ID` 对应用户还没有密码，会进入 owner setup，创建一个用户名和密码；之后所有 `/api/*` 与 `/ws` 都需要 `codo_session` HttpOnly Cookie。
+手动链接入口在 `cmd/api`：
 
-密钥类配置可以在前台设置页编辑，包括 LLM、Embedding、ASR、Telegram 和 SMTP。API 响应只返回 `*_configured` 状态，不回显真实 token、password 或 API key；前端密钥输入框保存后清空，后续只能替换。服务器环境变量仍作为兜底配置，数据库中的显式配置优先。
+```text
+POST /api/tasks
+  -> NormalizeURL
+  -> DetectContentType
+  -> task.New(source=manual)
+  -> 记录用户收藏意图（可选）
+  -> goroutine 内运行 Pipeline Router
+```
+
+订阅入口在 `cmd/scheduler`，启动后立即执行一次，之后每 30 分钟执行：
+
+```text
+runRSS
+runChaoxing
+runEmail
+runDailyReport
+runEmbeddingBackfill
+```
+
+所有内容最终都落到统一的 Task / Article 模型。Pipeline 按 `content_type` 分发，来源只影响过滤策略、通知策略和元数据。
 
 ---
 
-## 知识库分类与标签
+## Pipeline
 
-`content_type` 只表示处理方式，例如 `webpage` / `video` / `email`；主题归属不再增加新的内容类型，而是写入 `articles.category` 和 `articles.tags`。
+### WebPagePipeline
 
-例如用户提交政治新闻链接时，入口仍识别为 `webpage`，Pipeline 抓取正文并总结，然后分类器输出 `category=政治` 和若干短标签。前端知识库页通过 `/api/knowledge/facets` 聚合已有 `category/tags`，动态生成分类和标签筛选页，不需要提前写死“政治”“财经”“法律”等分类。
+```text
+去重
+  -> 抓取网页正文
+  -> 过滤判断
+  -> 英文资料自动翻译（可选）
+  -> 生成摘要
+  -> 内容分类
+  -> 存入知识库
+  -> 按策略通知
+```
 
-`articles.metadata` 用于承载平台、作者、站点、封面等来源特有信息；只有稳定、高频、需要索引或排序的字段才单独加列，例如 `published_at`。
+手动提交的网页直接 `pass`。收藏夹和 Linux.do 书签来源为 `silent`，跳过丢弃过滤并静默入库，避免把用户主动收藏的链接误判为无价值。
+
+### VideoPipeline
+
+```text
+去重
+  -> yt-dlp 获取字幕或音频
+  -> 无字幕时通过 ASR 转写
+  -> 过滤判断
+  -> 生成摘要
+  -> 内容分类
+  -> 存入知识库
+  -> 按策略通知
+```
+
+当前目标是用户授权或公开视频链接的文字稿提取和总结。B 站、抖音依赖 `yt-dlp`、`ffmpeg` 和可选 ASR。Cookie、浏览器 profile、UA 等运行时参数只通过本地配置或只读挂载提供，不写入仓库。
+
+### EmailPipeline
+
+```text
+IMAP 读取邮件
+  -> LLM 分类 important / notify / spam
+  -> spam 丢弃
+  -> notify 静默入库
+  -> important 摘要、入库并通知
+```
+
+邮箱来源使用只读 IMAP 配置，适合做个人收件箱摘要和重要邮件提取。
+
+### MessagePipeline
+
+`MessagePipeline` 已有抽象和处理流程，但当前发布版还没有接入具体群聊平台。因此文档和展示页不把群消息总结描述为已可用能力。
 
 ---
 
-## 偏好记忆与反馈
+## 来源管理
 
-内容过滤不再只依赖关键词。用户提交链接时可以写下收藏意图，知识库卡片和详情页也提供“有用 / 没用 / 类似通知 / 类似静默”反馈。后端把这些显式动作写入 `content_feedback`，再生成可编辑的 `user_memories`，最后聚合为 `preference_profiles`。
+当前订阅源统一存在 `subscriptions` 表，来源特有字段存在 `config` JSON 中。稳定、需要去重和提醒状态的检测结果进入 `source_items`。
 
-过滤器读取画像时只把它当作“偏好证据”，不把网页正文或记忆内容当作系统指令。当前画像会影响 `pass / silent / discard` 倾向：
+已落地来源：
 
-- `notify` / “类似通知”：类似内容更倾向 `pass`
-- `silent` / “类似静默”：类似内容更倾向 `silent`
-- `reject` / “没用”：普通质量的类似内容更倾向 `discard`
-- `intent`：帮助模型理解用户收藏链接的真实目的
+- **RSS / Atom**：通过 `gofeed` 拉取，生成网页或视频任务。
+- **学习通**：支持账号密码或 Cookie 配置，巡检作业和考试，按新任务和临近截止推送提醒。
+- **个人邮箱**：通过 IMAP 读取收件箱，交给 EmailPipeline 分类和摘要。
+- **收藏夹 / Linux.do 书签**：前台导入 URL、浏览器书签或 Linux.do 导出的 `bookmarks.csv` / zip，再同步到知识库。
 
-前台设置页可以查看、编辑、停用或删除记忆，也可以关闭“记忆参与过滤”。这个设计参考 Dify 的反馈与标注日志、Open WebUI 的可见用户记忆、LangMem 的记忆类型拆分，以及 Mem0 / Khoj / Letta / Graphiti 的个人长期记忆思路；Codo 当前不引入外部记忆服务，先保留轻量、透明、可控的本地实现。
+微信公众号当前只通过 RSSHub / RSS 间接接入，不提供微信官方接口抓取能力。知乎当前不可用；Playwright 只是通用 JS 渲染能力，不代表知乎支持已经完成。
+
+---
+
+## 分类、标签与新类型
+
+`content_type` 不随主题扩张，只保留稳定处理方式：
+
+- `webpage`
+- `video`
+- `email`
+- `message`
+- `post`
+
+如果用户提交一个政治新闻链接，入口仍识别为 `webpage`。Pipeline 抓取正文后，分类器把主题写入：
+
+- `articles.category = 政治`
+- `articles.tags = {国际关系, 政策, ...}`
+
+前端知识库通过 `/api/knowledge/facets` 聚合已有分类和标签，动态生成筛选项。也就是说，新的主题不需要新增数据库字段或内容类型。
+
+`articles.metadata` 用于保存站点、作者、封面、翻译信息等来源特有数据。只有稳定、高频、需要索引或排序的字段才单独加列，例如 `published_at`。
 
 ---
 
 ## 知识库搜索与问答
 
-入库内容会在 `SaveKnowledgeItem` 后同步生成 `article_chunks`。搜索接口 `/api/search` 先使用 PostgreSQL 的 `pg_trgm` 在切片正文、标题、摘要、分类、标签中做关键词召回；如果配置了 embedding 服务，并且 scheduler 已经为切片补齐向量，则再用 `pgvector` 做语义召回并合并排序。
+入库时 `SaveKnowledgeItem` 会生成 `article_chunks`。搜索接口 `/api/search` 使用两级召回：
 
-问答接口 `/api/qa` 使用同一套召回结果构造 RAG 上下文，要求模型只依据引用片段回答。Embedding 配置来自前台运行配置或服务器环境变量；为避免隐式请求和费用，只有显式设置 Embedding key 时才启用向量生成。`EMBEDDING_BASE_URL` 为空时可复用 `LLM_BASE_URL`：
+1. `pg_trgm`：对切片正文、标题、摘要、分类、标签做关键词召回。
+2. `pgvector`：如果配置了 Embedding，并且 scheduler 已回填向量，则做语义召回并合并排序。
 
-- `EMBEDDING_BASE_URL`
-- `EMBEDDING_API_KEY`
-- `EMBEDDING_MODEL`
-
-未配置 embedding 时，搜索和问答仍可使用关键词召回；未配置 LLM 时，搜索可用，问答返回服务未配置错误。
-
-Linux.do 书签导入复用收藏夹同步链路：前台上传 Discourse 用户导出的 `bookmarks.csv` 或包含该文件的 zip，后端只读取 `link`、`name`、`bookmarkable_type`、`created_at` 字段，过滤 `linux.do` 域名链接后写入 `bookmarks`。同步时任务来源标记为 `linux_do`，抓取、摘要、分类、切片和问答仍沿用标准网页管线。
+问答接口 `/api/qa` 复用搜索结果构造 RAG 上下文，并要求模型只依据引用片段回答。未配置 Embedding 时仍可关键词搜索；未配置 LLM 时搜索可用，问答返回配置错误。
 
 ---
 
-## 日报邮件推送
+## 偏好记忆与反馈
 
-日报由 `cmd/scheduler` 定时检查，使用 `internal/application/report` 聚合当天已入库的 `articles` 摘要，按分类生成纯文本邮件，并通过 `internal/infra/notify.Email` 发送。单条内容处理仍走 Pipeline 的即时通知策略，日报是独立的汇总用例。
+过滤层不只依赖关键词。用户可以在提交链接时写收藏意图，也可以在知识库卡片或详情页反馈“有用 / 没用 / 类似通知 / 类似静默”。
 
-用户可在前台设置：
+数据流：
 
-- 是否启用日报
-- 收件邮箱
-- 本地发送小时
-- 时区
+```text
+content_feedback
+  -> user_memories
+  -> preference_profiles
+  -> LLM Filter 读取偏好证据
+```
+
+记忆只作为偏好证据，不作为系统指令。用户可在前台查看、编辑、停用或删除记忆，也可以关闭“记忆参与过滤”。
+
+---
+
+## 翻译
+
+英文网页可自动翻译后再摘要。翻译配置由用户设置控制，翻译结果存在任务 / 文章 `metadata.translation` 中。根据配置，系统可以只把翻译用于摘要，也可以把译文写入知识库内容。
+
+翻译和摘要共用 OpenAI-compatible LLM 客户端，不引入单独翻译服务。
+
+---
+
+## 通知与报告
+
+即时通知由 Pipeline 的 `saveAndNotify` 触发，当前支持：
+
+- `telegram`
+- `email`
+- `none`
+
+如果用户首次注册时用户名是邮箱，系统会把初始通知渠道设为 `email`。用户之后可以在设置页改为 Telegram 或关闭通知。
+
+日报、周报、月报由 `internal/application/report` 负责。用户可配置：
+
+- 是否启用报告
+- 推送渠道：Email、Telegram
+- 频率：daily / weekly / monthly
+- 发送小时和时区
 - 最大条目数
+- 来源和分类过滤
+- 是否按分类拆分发送
 
-SMTP 连接配置可在前台设置页维护，也可由服务器环境变量兜底。密码只允许写入或替换，接口不回显真实值。
-
-`daily_reports` 表使用 `(user_id, report_date)` 唯一约束记录 `sent` / `skipped` / `failed` 状态，确保同一天不会重复发送；失败状态允许后续 scheduler 周期重试。
-
----
-
-## LLM 接入配置
-
-统一通过 OpenAI-compatible 中转站接入，支持任意兼容模型：
-
-```go
-// infra/llm/client.go
-cfg := llm.Config{
-    BaseURL: "https://api.your-relay.com/v1", // 中转站地址
-    APIKey:  "your-key",
-    Model:   "claude-opus-4-7",               // 中转站映射的模型名
-}
-client := llm.NewClient(cfg)
-
-// 同一个 client 实现所有 pipeline 所需接口
-// Filterer / Summarizer / Classifier / Extractor
-```
-
-配置项通过环境变量注入，不写死在代码里：
-
-```yaml
-# config.example.yaml
-llm:
-  base_url: ${LLM_BASE_URL}
-  api_key:  ${LLM_API_KEY}
-  model:    ${LLM_MODEL:-claude-opus-4-7}
-  # 轻量任务（filter/classify）可指定更便宜的模型
-  light_model: ${LLM_LIGHT_MODEL:-claude-haiku-4-5}
-```
+`daily_reports` 使用 `(user_id, report_date)` 唯一约束记录 `sent` / `skipped` / `failed`，避免同一周期重复发送。
 
 ---
 
-## 模型路由策略
+## 鉴权与配置管理
 
-```go
-// 不同任务使用不同模型，成本与质量平衡
-type ModelPolicy struct {
-    FilterModel    string // 轻量：haiku / gpt-4o-mini
-    SummarizeModel string // 主力：opus / gpt-4.1
-    TranslateModel string // 主力：opus / gpt-4.1
-    EmbedModel     string // text-embedding-3-small
-}
+Codo 按单人工作台设计。首次访问时，如果默认用户还没有密码，会进入 owner setup。之后 `/api/*` 和 `/ws` 都需要 `codo_session` HttpOnly Cookie。
 
-var DefaultPolicy = ModelPolicy{
-    FilterModel:    "claude-haiku-4-5",
-    SummarizeModel: "claude-opus-4-7",
-    TranslateModel: "claude-opus-4-7",
-    EmbedModel:     "text-embedding-3-small",
-}
+运行配置有两层：
+
+```text
+app_settings（前台保存）
+  + 环境变量兜底
+  -> runtimeconfig.Resolved
 ```
+
+前台可编辑：
+
+- LLM：`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`
+- Embedding：`EMBEDDING_BASE_URL`、`EMBEDDING_API_KEY`、`EMBEDDING_MODEL`
+- ASR：`ASR_BASE_URL`、`ASR_API_KEY`、`ASR_MODEL`
+- Telegram：token、chat id
+- SMTP：host、port、username、password、from、TLS
+
+Unity.ai 在本项目中作为 OpenAI-compatible API 中转和赞助方使用。代码层面只依赖标准兼容接口，不绑定 Unity.ai 专有 SDK。
 
 ---
 
-## Pipeline 接口设计
+## 数据模型
 
-```go
-// 每种内容类型对应一个 Pipeline 实现
-type Pipeline interface {
-    ContentType() domain.ContentType
-    Run(ctx context.Context, task *domain.Task) error
-}
+核心表：
 
-// 路由器根据内容类型分发
-type Router struct {
-    pipelines map[domain.ContentType]Pipeline
-}
+```text
+users
+  单人用户、用户名、密码哈希、通知渠道、过滤关键词、模型策略
 
-func (r *Router) Run(ctx context.Context, task *domain.Task) error {
-    p, ok := r.pipelines[task.ContentType]
-    if !ok {
-        return fmt.Errorf("no pipeline for %s", task.ContentType)
-    }
-    return p.Run(ctx, task)
-}
+auth_sessions
+  登录 session，存 token hash，不存明文 token
+
+app_settings
+  实例级运行配置，保存为 JSONB
+
+tasks
+  每次处理任务的来源、内容类型、状态、过滤结果、摘要、分类、标签
+
+task_steps
+  Pipeline 每一步的状态、耗时和简短详情，用于看板展示
+
+articles
+  知识库主表，保存正文、摘要、分类、标签、metadata、published_at
+
+article_chunks
+  搜索和问答切片，支持 pg_trgm 和 pgvector
+
+content_feedback
+  用户反馈和收藏意图
+
+user_memories
+  可编辑、可停用的偏好记忆
+
+preference_profiles
+  聚合后的偏好画像
+
+bookmarks
+  收藏夹导入、同步状态和错误
+
+subscriptions
+  RSS、学习通、邮箱等订阅源配置
+
+source_items
+  学习通作业 / 考试等来源检测结果和提醒状态
+
+daily_reports
+  报告发送记录，避免重复发送
 ```
 
----
+数据库扩展：
 
-## 过滤层设计
-
-```
-内容进入过滤层
-      │
-      ├─ 快速路径（无需 LLM）
-      │   ├─ URL 已在知识库？→ 丢弃
-      │   ├─ 正文 < 200 字？→ 丢弃
-      │   └─ 用户关键词黑名单命中？→ 丢弃
-      │
-      └─ LLM 判断（轻量模型，控制成本）
-          ├─ 内容质量评估 → 低质量 → 丢弃
-          ├─ 与用户兴趣匹配度 → 不匹配 → 降级（存库不推送）
-          └─ 通过 → 进入摘要生成
-```
-
-过滤三种结果：
-- **discard**：完全丢弃，不写库，节省存储和推送成本
-- **silent**：存入知识库，不推送，用户主动查询时能找到
-- **pass**：存库 + 推送摘要
-
----
-
-## 可扩展路径
-
-```
-v1  WebPagePipeline + Telegram Bot + 看板（主链路跑通）
-v2  + ModelRouter + Trace 落库（可观测）
-v3  + RSS / 公众号订阅（Scheduler + Source 插件）
-v4  + VideoPipeline（B站/抖音）
-v5  + EmailPipeline + MessagePipeline
-```
-
-每个版本新增一个 Pipeline 或 Source 实现，不改已有结构。
+- `pg_trgm`：关键词搜索和模糊召回。
+- `vector`：可选语义搜索和 embedding 召回。
 
 ---
 
 ## 部署
 
+发布版面向 Docker Compose：
+
+```text
+docker-compose.release.yml
+  ├─ postgres
+  ├─ api
+  ├─ scheduler
+  └─ caddy
 ```
-本地：docker-compose（api + worker + scheduler + postgres + redis + playwright）
-生产：Railway，每个服务独立容器，worker 可多实例水平扩展
-CI/CD：GitHub Actions → 构建镜像 → Railway 滚动部署
-```
+
+生产环境可以使用 `docker-compose.prod.yml`，通过 Nginx 或 Caddy 反向代理到 API。构建产物、`.env`、密钥、Cookie 文件、浏览器 profile 不进入 Git，也不进入镜像构建上下文。
+
+---
+
+## 当前限制
+
+- 知乎不可用，不应在 README、展示页或架构中宣称支持。
+- 群消息总结尚未接入具体平台。
+- 微信公众号只支持 RSSHub / RSS 间接订阅。
+- 视频解析依赖平台公开能力、用户授权状态、Cookie 和 `yt-dlp` 支持情况，不承诺绕过访问控制。
+- 当前没有独立队列服务；API 手动任务使用 goroutine，订阅任务由 scheduler 周期执行。
+
+---
+
+## 后续扩展点
+
+- 将手动任务和订阅任务统一接入持久化队列，提升重试、限流和水平扩展能力。
+- 抽象通知服务，合并即时通知和报告发送的渠道选择逻辑。
+- 增加 OPML 导入导出、订阅规则、来源级过滤策略。
+- 为邮箱和学习通增加更细粒度的错误诊断和重新授权流程。
+- 为知识库问答增加引用跳转、答案反馈和记忆更新闭环。
