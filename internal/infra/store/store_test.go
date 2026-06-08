@@ -3,6 +3,7 @@ package store
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestDailyReportFromRawPolicyUsesDefaultsWhenMissing(t *testing.T) {
@@ -65,5 +66,50 @@ func TestBuildArticleChunksSplitsLongContent(t *testing.T) {
 	}
 	if chunks[0].Content == chunks[1].Content {
 		t.Fatalf("chunks should not be identical")
+	}
+}
+
+func TestNormalizeFeedbackInputRejectsUnknownRating(t *testing.T) {
+	input := normalizeFeedbackInput(FeedbackInput{
+		TargetType: " Article ",
+		TargetID:   " a-1 ",
+		Rating:     "unknown",
+		Source:     "",
+	})
+	if input.TargetType != "article" || input.TargetID != "a-1" {
+		t.Fatalf("target not normalized: %#v", input)
+	}
+	if input.Rating != "" {
+		t.Fatalf("rating = %q, want empty", input.Rating)
+	}
+	if input.Source != "manual" {
+		t.Fatalf("source = %q, want manual", input.Source)
+	}
+}
+
+func TestFeedbackMemoryMappingKeepsNotifyAndSilentDistinct(t *testing.T) {
+	notifyType, _ := feedbackMemoryMapping(feedbackNotifySimilar)
+	silentType, _ := feedbackMemoryMapping(feedbackSilentSimilar)
+	if notifyType != memoryNotify {
+		t.Fatalf("notify type = %q, want %q", notifyType, memoryNotify)
+	}
+	if silentType != memorySilent {
+		t.Fatalf("silent type = %q, want %q", silentType, memorySilent)
+	}
+}
+
+func TestProfileFromRawNormalizesLists(t *testing.T) {
+	profile, err := profileFromRaw("demo-user", true, `{"recent_intents":["  AI 产品落地  "],"feedback_count":2,"memory_count":3}`, 4, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !profile.MemoryEnabled || profile.Version != 4 {
+		t.Fatalf("unexpected profile flags: %#v", profile)
+	}
+	if len(profile.RecentIntents) != 1 || profile.RecentIntents[0] != "AI 产品落地" {
+		t.Fatalf("recent intents not normalized: %#v", profile.RecentIntents)
+	}
+	if profile.FeedbackCount != 2 || profile.MemoryCount != 3 {
+		t.Fatalf("counts not preserved: %#v", profile)
 	}
 }

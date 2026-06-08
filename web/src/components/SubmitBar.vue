@@ -8,16 +8,25 @@
       </div>
     </div>
     <form class="submit-form" @submit.prevent="submit">
-      <input
-        v-model="url"
-        type="text"
-        inputmode="url"
-        autocomplete="url"
-        placeholder="粘贴网页、B站或抖音分享链接"
-        aria-label="要收藏的链接"
-        :disabled="loading"
-        @input="error = ''"
-      />
+      <div class="submit-input-stack">
+        <input
+          v-model="url"
+          type="text"
+          inputmode="url"
+          autocomplete="url"
+          placeholder="粘贴网页、B站或抖音分享链接"
+          aria-label="要收藏的链接"
+          :disabled="loading"
+          @input="error = ''"
+        />
+        <input
+          v-model="intent"
+          type="text"
+          placeholder="保存意图，例如：关注这个方向的产品判断"
+          aria-label="保存意图"
+          :disabled="loading"
+        />
+      </div>
       <button type="submit" :disabled="loading || !url.trim()">
         <LoaderCircle v-if="loading" :size="17" class="spinning" />
         <ArrowUpRight v-else :size="17" />
@@ -35,6 +44,7 @@ import { api } from '../api'
 
 const emit = defineEmits<{ submitted: [id: string] }>()
 const url = ref('')
+const intent = ref('')
 const loading = ref(false)
 const error = ref('')
 
@@ -57,9 +67,10 @@ async function submit() {
   loading.value = true
   error.value = ''
   try {
-    const { id } = await api.submitUrl(url.value.trim())
+    const { id } = await api.submitUrl(url.value.trim(), intent.value.trim())
     emit('submitted', id)
     url.value = ''
+    intent.value = ''
   } catch {
     error.value = '提交失败，请确认 Agent API 已启动。'
   } finally {

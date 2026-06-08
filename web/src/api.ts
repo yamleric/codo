@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Article, AuthStatus, Bookmark, BookmarkImportResult, KnowledgeFacets, QAResponse, SearchResponse, SourceItem, Subscription, Task, UserSettings, UserSettingsPatch } from './types'
+import type { Article, AuthStatus, Bookmark, BookmarkImportResult, FeedbackRating, KnowledgeFacets, MemoryType, PreferenceMemoryResponse, QAResponse, SearchResponse, SourceItem, Subscription, Task, UserMemory, UserSettings, UserSettingsPatch } from './types'
 
 axios.defaults.withCredentials = true
 
@@ -16,8 +16,8 @@ export const api = {
   logout: () =>
     axios.post('/api/auth/logout'),
 
-  submitUrl: (url: string) =>
-    axios.post<{ id: string }>('/api/tasks', { url }).then(r => r.data),
+  submitUrl: (url: string, intent?: string) =>
+    axios.post<{ id: string }>('/api/tasks', { url, intent: intent || '' }).then(r => r.data),
 
   getTasks: () =>
     axios.get<Task[]>('/api/tasks').then(r => r.data),
@@ -91,6 +91,24 @@ export const api = {
 
   askKnowledge: (question: string) =>
     axios.post<QAResponse>('/api/qa', { question }).then(r => r.data),
+
+  sendFeedback: (payload: { target_type: string; target_id: string; rating: FeedbackRating; intent?: string; comment?: string; source?: string }) =>
+    axios.post('/api/feedback', payload).then(r => r.data),
+
+  getPreferenceMemory: () =>
+    axios.get<PreferenceMemoryResponse>('/api/preference-memory').then(r => r.data),
+
+  updatePreferenceMemory: (payload: { memory_enabled?: boolean }) =>
+    axios.patch<PreferenceMemoryResponse>('/api/preference-memory', payload).then(r => r.data),
+
+  addMemory: (payload: { memory_type: MemoryType; content: string; confidence?: number; disabled?: boolean }) =>
+    axios.post<UserMemory>('/api/preference-memory/memories', payload).then(r => r.data),
+
+  updateMemory: (id: string, payload: { memory_type: MemoryType | string; content: string; confidence: number; disabled?: boolean }) =>
+    axios.patch<UserMemory>(`/api/preference-memory/memories/${encodeURIComponent(id)}`, payload).then(r => r.data),
+
+  deleteMemory: (id: string) =>
+    axios.delete(`/api/preference-memory/memories/${encodeURIComponent(id)}`),
 
   getSettings: () =>
     axios.get<UserSettings>('/api/settings').then(r => r.data),

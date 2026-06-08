@@ -323,6 +323,8 @@
         <div v-else class="keyword-empty">未设置关键词</div>
       </section>
 
+      <PreferenceMemoryPanel />
+
       <section class="settings-card runtime-card">
         <header>
           <span class="settings-card-icon"><ShieldCheck :size="16" /></span>
@@ -390,6 +392,7 @@ import {
   X,
 } from '@lucide/vue'
 import { api } from '../api'
+import PreferenceMemoryPanel from './PreferenceMemoryPanel.vue'
 import type {
   NotifyChannel,
   NotifyPolicy,
