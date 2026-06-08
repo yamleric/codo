@@ -259,6 +259,41 @@
           <small class="settings-help">留空时，如果你的登录用户名本身是邮箱，会自动发送到该地址。</small>
         </label>
 
+        <div class="settings-report-grid">
+          <label class="settings-field">
+            <span>总结频率</span>
+            <div class="settings-segmented three">
+              <button
+                v-for="option in reportFrequencyOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: form.daily_report.frequency === option.value }"
+                :aria-pressed="form.daily_report.frequency === option.value"
+                @click="form.daily_report.frequency = option.value"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </label>
+
+          <label class="settings-field">
+            <span>发送渠道</span>
+            <div class="settings-chip-grid two">
+              <button
+                v-for="option in reportChannelOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: form.daily_report.channels.includes(option.value) }"
+                :aria-pressed="form.daily_report.channels.includes(option.value)"
+                @click="toggleReportChannel(option.value)"
+              >
+                <component :is="option.icon" :size="13" />
+                {{ option.label }}
+              </button>
+            </div>
+          </label>
+        </div>
+
         <div class="settings-triple">
           <label class="settings-field">
             <span>发送小时</span>
@@ -289,6 +324,66 @@
             />
           </label>
         </div>
+
+        <label class="settings-field">
+          <span>来源范围</span>
+          <div class="settings-chip-grid">
+            <button
+              type="button"
+              :class="{ active: form.daily_report.sources.length === 0 }"
+              :aria-pressed="form.daily_report.sources.length === 0"
+              @click="form.daily_report.sources = []"
+            >
+              全部来源
+            </button>
+            <button
+              v-for="option in reportSourceOptions"
+              :key="option.value"
+              type="button"
+              :class="{ active: form.daily_report.sources.includes(option.value) }"
+              :aria-pressed="form.daily_report.sources.includes(option.value)"
+              @click="toggleReportSource(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </label>
+
+        <div class="settings-report-grid">
+          <label class="settings-field">
+            <span>分类范围</span>
+            <div class="settings-segmented three">
+              <button
+                v-for="option in reportCategoryModeOptions"
+                :key="option.value"
+                type="button"
+                :class="{ active: form.daily_report.category_mode === option.value }"
+                :aria-pressed="form.daily_report.category_mode === option.value"
+                @click="setReportCategoryMode(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
+          </label>
+          <label class="settings-field">
+            <span>分类列表</span>
+            <input
+              :value="form.daily_report.categories.join('，')"
+              type="text"
+              placeholder="AI，产品，财经"
+              :disabled="form.daily_report.category_mode === 'all'"
+              @input="updateReportCategories"
+            />
+          </label>
+        </div>
+
+        <label class="settings-toggle settings-report-toggle">
+          <input v-model="form.daily_report.split_by_category" type="checkbox" />
+          <span>
+            <strong>按分类拆开发送</strong>
+            <small>关闭时合并一条总结，并在正文里按分类分组。</small>
+          </span>
+        </label>
       </section>
 
       <section class="settings-card keywords-card">
@@ -416,6 +511,12 @@ interface SettingsForm {
     hour: number
     timezone: string
     max_items: number
+    frequency: string
+    channels: string[]
+    sources: string[]
+    categories: string[]
+    category_mode: string
+    split_by_category: boolean
   }
   runtime_config: {
     llm: { base_url: string; model: string; api_key: string }
@@ -448,6 +549,12 @@ const form = reactive<SettingsForm>({
     hour: 21,
     timezone: 'Asia/Shanghai',
     max_items: 20,
+    frequency: 'daily',
+    channels: ['email'],
+    sources: [],
+    categories: [],
+    category_mode: 'all',
+    split_by_category: false,
   },
   runtime_config: emptyRuntimeConfigForm(),
 })
@@ -474,11 +581,38 @@ const languageOptions = [
   { value: 'en' as const, label: 'English' },
 ]
 
+const reportFrequencyOptions = [
+  { value: 'daily', label: '每日' },
+  { value: 'weekly', label: '每周' },
+  { value: 'monthly', label: '每月' },
+]
+
+const reportChannelOptions = [
+  { value: 'email', label: 'Email', icon: Mail },
+  { value: 'telegram', label: 'Telegram', icon: MessageCircle },
+]
+
+const reportCategoryModeOptions = [
+  { value: 'all', label: '全部' },
+  { value: 'include', label: '只包含' },
+  { value: 'exclude', label: '排除' },
+]
+
+const reportSourceOptions = [
+  { value: 'manual', label: '手动' },
+  { value: 'bookmark', label: '收藏夹' },
+  { value: 'linux_do', label: 'linux.do' },
+  { value: 'rss', label: 'RSS' },
+  { value: 'wechat_mp', label: '公众号' },
+  { value: 'email', label: '邮件' },
+  { value: 'chaoxing', label: '学习通' },
+]
+
 const dirty = computed(() => serializeForm() !== original.value)
 
 const reportScheduleText = computed(() => {
   const hour = clampReportHour(form.daily_report.hour).toString().padStart(2, '0')
-  return `${form.daily_report.timezone || 'Asia/Shanghai'} ${hour}:00`
+  return `${reportFrequencyLabel(form.daily_report.frequency)} · ${form.daily_report.timezone || 'Asia/Shanghai'} ${hour}:00`
 })
 
 const runtimeItems = computed(() => {
@@ -557,6 +691,12 @@ function hydrate(next: UserSettings) {
     hour: 21,
     timezone: 'Asia/Shanghai',
     max_items: 20,
+    frequency: 'daily',
+    channels: ['email'],
+    sources: [],
+    categories: [],
+    category_mode: 'all',
+    split_by_category: false,
   })
   form.runtime_config = runtimeConfigFormFromSettings(next)
   original.value = serializeForm()
@@ -581,6 +721,40 @@ function addKeywords() {
 
 function removeKeyword(keyword: string) {
   form.filter_keywords = form.filter_keywords.filter(item => item !== keyword)
+  savedMessage.value = ''
+}
+
+function toggleReportChannel(channel: string) {
+  const channels = new Set(form.daily_report.channels)
+  if (channels.has(channel)) {
+    channels.delete(channel)
+  } else {
+    channels.add(channel)
+  }
+  form.daily_report.channels = normalizeReportChannels(Array.from(channels))
+  savedMessage.value = ''
+}
+
+function toggleReportSource(source: string) {
+  const sources = new Set(form.daily_report.sources)
+  if (sources.has(source)) {
+    sources.delete(source)
+  } else {
+    sources.add(source)
+  }
+  form.daily_report.sources = normalizeReportSources(Array.from(sources))
+  savedMessage.value = ''
+}
+
+function setReportCategoryMode(mode: string) {
+  form.daily_report.category_mode = mode
+  if (mode === 'all') form.daily_report.categories = []
+  savedMessage.value = ''
+}
+
+function updateReportCategories(event: Event) {
+  const input = event.target as HTMLInputElement
+  form.daily_report.categories = normalizeReportCategories(input.value.split(/[,，\n]/))
   savedMessage.value = ''
 }
 
@@ -715,13 +889,75 @@ function clampSummaryChars(value: number) {
 }
 
 function normalizeDailyReport(report: SettingsForm['daily_report']) {
+  const categoryMode = normalizeReportCategoryMode(report.category_mode)
+  const categories = categoryMode === 'all' ? [] : normalizeReportCategories(report.categories || [])
   return {
     enabled: !!report.enabled,
     email: (report.email || '').trim(),
     hour: clampReportHour(report.hour),
     timezone: (report.timezone || 'Asia/Shanghai').trim(),
     max_items: clampReportMaxItems(report.max_items),
+    frequency: normalizeReportFrequency(report.frequency),
+    channels: normalizeReportChannels(report.channels || []),
+    sources: normalizeReportSources(report.sources || []),
+    categories,
+    category_mode: categories.length ? categoryMode : 'all',
+    split_by_category: !!report.split_by_category,
   }
+}
+
+function normalizeReportFrequency(value: string) {
+  if (value === 'weekly' || value === 'monthly') return value
+  return 'daily'
+}
+
+function reportFrequencyLabel(value: string) {
+  if (value === 'weekly') return '每周'
+  if (value === 'monthly') return '每月'
+  return '每日'
+}
+
+function normalizeReportChannels(values: string[]) {
+  const allowed = new Set(reportChannelOptions.map(item => item.value))
+  const out = uniqueAllowed(values, allowed, 2)
+  return out.length ? out : ['email']
+}
+
+function normalizeReportSources(values: string[]) {
+  const allowed = new Set(reportSourceOptions.map(item => item.value))
+  return uniqueAllowed(values, allowed, 16)
+}
+
+function normalizeReportCategoryMode(value: string) {
+  if (value === 'include' || value === 'exclude') return value
+  return 'all'
+}
+
+function normalizeReportCategories(values: string[]) {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of values) {
+    const category = Array.from(raw.trim()).slice(0, 24).join('')
+    const key = category.toLowerCase()
+    if (!category || seen.has(key)) continue
+    seen.add(key)
+    out.push(category)
+    if (out.length >= 24) break
+  }
+  return out
+}
+
+function uniqueAllowed(values: string[], allowed: Set<string>, limit: number) {
+  const out: string[] = []
+  const seen = new Set<string>()
+  for (const raw of values) {
+    const value = (raw || '').trim().toLowerCase()
+    if (!allowed.has(value) || seen.has(value)) continue
+    seen.add(value)
+    out.push(value)
+    if (out.length >= limit) break
+  }
+  return out
 }
 
 function clampReportHour(value: number) {

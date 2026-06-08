@@ -1050,11 +1050,17 @@ type UserModelPolicy struct {
 }
 
 type DailyReport struct {
-	Enabled  bool   `json:"enabled"`
-	Email    string `json:"email"`
-	Hour     int    `json:"hour"`
-	Timezone string `json:"timezone"`
-	MaxItems int    `json:"max_items"`
+	Enabled         bool     `json:"enabled"`
+	Email           string   `json:"email"`
+	Hour            int      `json:"hour"`
+	Timezone        string   `json:"timezone"`
+	MaxItems        int      `json:"max_items"`
+	Frequency       string   `json:"frequency"`
+	Channels        []string `json:"channels"`
+	Sources         []string `json:"sources"`
+	Categories      []string `json:"categories"`
+	CategoryMode    string   `json:"category_mode"`
+	SplitByCategory bool     `json:"split_by_category"`
 }
 
 func DefaultUserModelPolicy() UserModelPolicy {
@@ -1068,11 +1074,16 @@ func DefaultUserModelPolicy() UserModelPolicy {
 
 func DefaultDailyReport() DailyReport {
 	return DailyReport{
-		Enabled:  false,
-		Email:    "",
-		Hour:     21,
-		Timezone: "Asia/Shanghai",
-		MaxItems: 20,
+		Enabled:      false,
+		Email:        "",
+		Hour:         21,
+		Timezone:     "Asia/Shanghai",
+		MaxItems:     20,
+		Frequency:    "daily",
+		Channels:     []string{"email"},
+		Sources:      []string{},
+		Categories:   []string{},
+		CategoryMode: "all",
 	}
 }
 
@@ -1085,8 +1096,12 @@ func NormalizeUserSettings(settings UserSettings) UserSettings {
 	settings.FilterKeywords = normalizeKeywords(settings.FilterKeywords)
 	settings.ModelPolicy = NormalizeUserModelPolicy(settings.ModelPolicy)
 	settings.DailyReport = NormalizeDailyReport(settings.DailyReport)
-	if settings.DailyReport.Enabled && DailyReportRecipient(settings.DailyReport, settings.Username) == "" {
-		settings.DailyReport.Enabled = false
+	if settings.DailyReport.Enabled && ReportUsesChannel(settings.DailyReport, "email") && DailyReportRecipient(settings.DailyReport, settings.Username) == "" {
+		settings.DailyReport.Channels = removeString(settings.DailyReport.Channels, "email")
+		if len(settings.DailyReport.Channels) == 0 {
+			settings.DailyReport.Enabled = false
+			settings.DailyReport.Channels = []string{"email"}
+		}
 	}
 	return settings
 }
@@ -1144,6 +1159,39 @@ func NormalizeDailyReport(report DailyReport) DailyReport {
 	if report.MaxItems > 80 {
 		report.MaxItems = 80
 	}
+	switch strings.TrimSpace(strings.ToLower(report.Frequency)) {
+	case "daily", "weekly", "monthly":
+		report.Frequency = strings.TrimSpace(strings.ToLower(report.Frequency))
+	default:
+		report.Frequency = defaults.Frequency
+	}
+	report.Channels = normalizeStringEnumList(report.Channels, map[string]struct{}{
+		"email":    {},
+		"telegram": {},
+	}, 2)
+	if len(report.Channels) == 0 {
+		report.Channels = append([]string{}, defaults.Channels...)
+	}
+	report.Sources = normalizeStringEnumList(report.Sources, map[string]struct{}{
+		"manual":     {},
+		"bookmark":   {},
+		"linux_do":   {},
+		"rss":        {},
+		"wechat_mp":  {},
+		"email":      {},
+		"chaoxing":   {},
+		"group_chat": {},
+	}, 16)
+	report.Categories = normalizeReportCategories(report.Categories)
+	switch strings.TrimSpace(strings.ToLower(report.CategoryMode)) {
+	case "all", "include", "exclude":
+		report.CategoryMode = strings.TrimSpace(strings.ToLower(report.CategoryMode))
+	default:
+		report.CategoryMode = defaults.CategoryMode
+	}
+	if len(report.Categories) == 0 {
+		report.CategoryMode = "all"
+	}
 	return report
 }
 
@@ -1200,6 +1248,16 @@ func DailyReportRecipient(report DailyReport, username string) string {
 	return ""
 }
 
+func ReportUsesChannel(report DailyReport, channel string) bool {
+	channel = strings.TrimSpace(strings.ToLower(channel))
+	for _, item := range NormalizeDailyReport(report).Channels {
+		if item == channel {
+			return true
+		}
+	}
+	return false
+}
+
 func (s *Store) UpdateUserSettings(ctx context.Context, settings UserSettings) error {
 	if err := s.ensureUser(ctx, settings.UserID); err != nil {
 		return err
@@ -1248,11 +1306,17 @@ func dailyReportFromRawPolicy(rawPolicy string) DailyReport {
 	}
 	var payload struct {
 		DailyReport *struct {
-			Enabled  *bool   `json:"enabled"`
-			Email    *string `json:"email"`
-			Hour     *int    `json:"hour"`
-			Timezone *string `json:"timezone"`
-			MaxItems *int    `json:"max_items"`
+			Enabled         *bool     `json:"enabled"`
+			Email           *string   `json:"email"`
+			Hour            *int      `json:"hour"`
+			Timezone        *string   `json:"timezone"`
+			MaxItems        *int      `json:"max_items"`
+			Frequency       *string   `json:"frequency"`
+			Channels        *[]string `json:"channels"`
+			Sources         *[]string `json:"sources"`
+			Categories      *[]string `json:"categories"`
+			CategoryMode    *string   `json:"category_mode"`
+			SplitByCategory *bool     `json:"split_by_category"`
 		} `json:"daily_report"`
 	}
 	if err := json.Unmarshal([]byte(rawPolicy), &payload); err != nil {
@@ -1276,6 +1340,24 @@ func dailyReportFromRawPolicy(rawPolicy string) DailyReport {
 	}
 	if payload.DailyReport.MaxItems != nil {
 		report.MaxItems = *payload.DailyReport.MaxItems
+	}
+	if payload.DailyReport.Frequency != nil {
+		report.Frequency = *payload.DailyReport.Frequency
+	}
+	if payload.DailyReport.Channels != nil {
+		report.Channels = *payload.DailyReport.Channels
+	}
+	if payload.DailyReport.Sources != nil {
+		report.Sources = *payload.DailyReport.Sources
+	}
+	if payload.DailyReport.Categories != nil {
+		report.Categories = *payload.DailyReport.Categories
+	}
+	if payload.DailyReport.CategoryMode != nil {
+		report.CategoryMode = *payload.DailyReport.CategoryMode
+	}
+	if payload.DailyReport.SplitByCategory != nil {
+		report.SplitByCategory = *payload.DailyReport.SplitByCategory
 	}
 	return report
 }
@@ -1321,6 +1403,74 @@ func normalizeKeywords(keywords []string) []string {
 		if len(out) >= 32 {
 			break
 		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func normalizeStringEnumList(values []string, allowed map[string]struct{}, limit int) []string {
+	if limit <= 0 {
+		limit = len(values)
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "" {
+			continue
+		}
+		if _, ok := allowed[value]; !ok {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		if len(out) >= limit {
+			break
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func normalizeReportCategories(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = truncateText(strings.TrimSpace(value), 24)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+		if len(out) >= 24 {
+			break
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func removeString(values []string, target string) []string {
+	target = strings.TrimSpace(strings.ToLower(target))
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if strings.TrimSpace(strings.ToLower(value)) == target {
+			continue
+		}
+		out = append(out, value)
 	}
 	if out == nil {
 		return []string{}

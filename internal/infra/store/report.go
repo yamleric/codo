@@ -18,9 +18,28 @@ type DailyArticleRow struct {
 	CreatedAt time.Time
 }
 
-func (s *Store) ListDailyArticles(ctx context.Context, userID string, start, end time.Time, limit int) ([]DailyArticleRow, error) {
-	if limit <= 0 {
-		limit = 20
+type DailyArticleQuery struct {
+	Limit        int
+	Sources      []string
+	Categories   []string
+	CategoryMode string
+}
+
+func (s *Store) ListDailyArticles(ctx context.Context, userID string, start, end time.Time, query DailyArticleQuery) ([]DailyArticleRow, error) {
+	if query.Limit <= 0 {
+		query.Limit = 20
+	}
+	if query.CategoryMode != "include" && query.CategoryMode != "exclude" {
+		query.CategoryMode = "all"
+	}
+	if len(query.Categories) == 0 {
+		query.CategoryMode = "all"
+	}
+	if query.Sources == nil {
+		query.Sources = []string{}
+	}
+	if query.Categories == nil {
+		query.Categories = []string{}
 	}
 	rows, err := s.db.Query(ctx, `
 		SELECT id,
@@ -35,8 +54,14 @@ func (s *Store) ListDailyArticles(ctx context.Context, userID string, start, end
 		  AND created_at >= $2
 		  AND created_at < $3
 		  AND summary <> ''
+		  AND (cardinality($4::text[]) = 0 OR source = ANY($4::text[]))
+		  AND (
+		    $5 = 'all'
+		    OR ($5 = 'include' AND COALESCE(NULLIF(category, ''), '未分类') = ANY($6::text[]))
+		    OR ($5 = 'exclude' AND NOT (COALESCE(NULLIF(category, ''), '未分类') = ANY($6::text[])))
+		  )
 		ORDER BY created_at DESC
-		LIMIT $4`, userID, start, end, limit)
+		LIMIT $7`, userID, start, end, query.Sources, query.CategoryMode, query.Categories, query.Limit)
 	if err != nil {
 		return nil, err
 	}

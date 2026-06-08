@@ -3489,6 +3489,65 @@ select:focus-visible {
   gap: 10px;
 }
 
+.settings-report-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 10px;
+}
+
+.settings-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.settings-chip-grid.two {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.settings-chip-grid button {
+  display: inline-flex;
+  min-width: 0;
+  height: 30px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 0 9px;
+  color: var(--muted);
+  font-size: 9px;
+  background: #f0f3ef;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.settings-chip-grid button.active {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: #c9ddd5;
+}
+
+.settings-report-toggle {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  padding: 10px;
+  background: #f7f9f6;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+}
+
+.settings-report-toggle span {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+
+.settings-report-toggle strong {
+  font-size: 10px;
+}
+
 .settings-service-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4427,12 +4486,17 @@ select:focus-visible {
 
   .settings-segmented.three,
   .settings-pair,
+  .settings-report-grid,
   .settings-triple,
   .settings-service-grid,
   .memory-profile-grid,
   .memory-composer,
   .memory-edit-grid,
   .runtime-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .settings-chip-grid.two {
     grid-template-columns: 1fr;
   }
 

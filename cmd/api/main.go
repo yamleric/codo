@@ -1134,11 +1134,17 @@ type settingsPatch struct {
 }
 
 type dailyReportPatch struct {
-	Enabled  *bool   `json:"enabled"`
-	Email    *string `json:"email"`
-	Hour     *int    `json:"hour"`
-	Timezone *string `json:"timezone"`
-	MaxItems *int    `json:"max_items"`
+	Enabled         *bool     `json:"enabled"`
+	Email           *string   `json:"email"`
+	Hour            *int      `json:"hour"`
+	Timezone        *string   `json:"timezone"`
+	MaxItems        *int      `json:"max_items"`
+	Frequency       *string   `json:"frequency"`
+	Channels        *[]string `json:"channels"`
+	Sources         *[]string `json:"sources"`
+	Categories      *[]string `json:"categories"`
+	CategoryMode    *string   `json:"category_mode"`
+	SplitByCategory *bool     `json:"split_by_category"`
 }
 
 func settingsResponseFromStore(settings store.UserSettings, config store.AppConfig) settingsResponse {
@@ -1232,7 +1238,48 @@ func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.
 			}
 			report.MaxItems = *patch.DailyReport.MaxItems
 		}
-		if report.Enabled && store.DailyReportRecipient(report, current.Username) == "" {
+		if patch.DailyReport.Frequency != nil {
+			value := strings.TrimSpace(strings.ToLower(*patch.DailyReport.Frequency))
+			if value != "daily" && value != "weekly" && value != "monthly" {
+				return store.UserSettings{}, fmt.Errorf("invalid daily_report.frequency")
+			}
+			report.Frequency = value
+		}
+		if patch.DailyReport.Channels != nil {
+			channels := normalizePatchList(*patch.DailyReport.Channels, 2)
+			for _, channel := range channels {
+				if channel != "email" && channel != "telegram" {
+					return store.UserSettings{}, fmt.Errorf("invalid daily_report.channels")
+				}
+			}
+			report.Channels = channels
+		}
+		if patch.DailyReport.Sources != nil {
+			sources := normalizePatchList(*patch.DailyReport.Sources, 16)
+			for _, source := range sources {
+				switch source {
+				case "manual", "bookmark", "linux_do", "rss", "wechat_mp", "email", "chaoxing", "group_chat":
+				default:
+					return store.UserSettings{}, fmt.Errorf("invalid daily_report.sources")
+				}
+			}
+			report.Sources = sources
+		}
+		if patch.DailyReport.Categories != nil {
+			report.Categories = normalizePatchCategories(*patch.DailyReport.Categories)
+		}
+		if patch.DailyReport.CategoryMode != nil {
+			value := strings.TrimSpace(strings.ToLower(*patch.DailyReport.CategoryMode))
+			if value != "all" && value != "include" && value != "exclude" {
+				return store.UserSettings{}, fmt.Errorf("invalid daily_report.category_mode")
+			}
+			report.CategoryMode = value
+		}
+		if patch.DailyReport.SplitByCategory != nil {
+			report.SplitByCategory = *patch.DailyReport.SplitByCategory
+		}
+		report = store.NormalizeDailyReport(report)
+		if report.Enabled && store.ReportUsesChannel(report, "email") && store.DailyReportRecipient(report, current.Username) == "" {
 			return store.UserSettings{}, fmt.Errorf("daily_report.email is required when enabled unless username is an email")
 		}
 		current.DailyReport = report
@@ -1557,6 +1604,60 @@ func bookmarkInputsFromPayload(body bookmarkImportPayload) []store.BookmarkInput
 		}
 		seen[input.URL] = struct{}{}
 		out = append(out, input)
+	}
+	return out
+}
+
+func normalizePatchList(values []string, limit int) []string {
+	if limit <= 0 {
+		limit = len(values)
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(strings.ToLower(value))
+		if value == "" {
+			continue
+		}
+		if _, exists := seen[value]; exists {
+			continue
+		}
+		seen[value] = struct{}{}
+		out = append(out, value)
+		if len(out) >= limit {
+			break
+		}
+	}
+	if out == nil {
+		return []string{}
+	}
+	return out
+}
+
+func normalizePatchCategories(values []string) []string {
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		runes := []rune(value)
+		if len(runes) > 24 {
+			value = string(runes[:24])
+		}
+		key := strings.ToLower(value)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, value)
+		if len(out) >= 24 {
+			break
+		}
+	}
+	if out == nil {
+		return []string{}
 	}
 	return out
 }

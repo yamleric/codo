@@ -8,7 +8,8 @@ import (
 
 func TestDailyReportFromRawPolicyUsesDefaultsWhenMissing(t *testing.T) {
 	report := dailyReportFromRawPolicy(`{"summary_style":"concise"}`)
-	if report.Hour != 21 || report.Timezone != "Asia/Shanghai" || report.MaxItems != 20 || report.Enabled {
+	report = NormalizeDailyReport(report)
+	if report.Hour != 21 || report.Timezone != "Asia/Shanghai" || report.MaxItems != 20 || report.Enabled || report.Frequency != "daily" || len(report.Channels) != 1 || report.Channels[0] != "email" {
 		t.Fatalf("unexpected defaults: %#v", report)
 	}
 }
@@ -31,6 +32,43 @@ func TestDailyReportRecipientPrefersExplicitEmail(t *testing.T) {
 	report := DailyReport{Email: "summary@example.com"}
 	if got := DailyReportRecipient(report, "owner@example.com"); got != "summary@example.com" {
 		t.Fatalf("recipient = %q, want explicit email", got)
+	}
+}
+
+func TestNormalizeDailyReportKeepsFrequencyChannelsAndFilters(t *testing.T) {
+	report := NormalizeDailyReport(DailyReport{
+		Enabled:         true,
+		Frequency:       "weekly",
+		Channels:        []string{"telegram", "email", "telegram", "bad"},
+		Sources:         []string{"rss", "linux_do", "bad"},
+		Categories:      []string{" AI ", "ai", "产品"},
+		CategoryMode:    "include",
+		SplitByCategory: true,
+	})
+	if report.Frequency != "weekly" || len(report.Channels) != 2 || report.Channels[0] != "telegram" || report.Channels[1] != "email" {
+		t.Fatalf("unexpected channels/frequency: %#v", report)
+	}
+	if len(report.Sources) != 2 || report.Sources[1] != "linux_do" {
+		t.Fatalf("unexpected sources: %#v", report.Sources)
+	}
+	if report.CategoryMode != "include" || len(report.Categories) != 2 || report.Categories[0] != "AI" {
+		t.Fatalf("unexpected categories: %#v", report)
+	}
+	if !report.SplitByCategory {
+		t.Fatalf("split_by_category not kept: %#v", report)
+	}
+}
+
+func TestNormalizeUserSettingsAllowsTelegramOnlyReportWithoutEmail(t *testing.T) {
+	settings := NormalizeUserSettings(UserSettings{
+		Username: "owner",
+		DailyReport: DailyReport{
+			Enabled:  true,
+			Channels: []string{"telegram"},
+		},
+	})
+	if !settings.DailyReport.Enabled || !ReportUsesChannel(settings.DailyReport, "telegram") {
+		t.Fatalf("telegram-only report should remain enabled: %#v", settings.DailyReport)
 	}
 }
 
