@@ -242,6 +242,17 @@ app_settings (key, value jsonb, updated_at)
 -- 日报发送记录（避免同一天重复发送）
 daily_reports (id, user_id, report_date, status, item_count,
                last_error, sent_at, created_at, updated_at)
+
+-- 内容反馈与偏好记忆
+content_feedback (id, user_id, target_type, target_id, rating,
+                  intent, comment, source, created_at, updated_at)
+
+user_memories (id, user_id, memory_type, content, confidence,
+               source_type, source_id, embedding vector(1536),
+               disabled_at, created_at, updated_at)
+
+preference_profiles (user_id, memory_enabled, profile_json,
+                     version, created_at, updated_at)
 ```
 
 ---
@@ -261,6 +272,21 @@ Codo 按单人单用设计，不维护角色、团队或复杂管理员系统。
 例如用户提交政治新闻链接时，入口仍识别为 `webpage`，Pipeline 抓取正文并总结，然后分类器输出 `category=政治` 和若干短标签。前端知识库页通过 `/api/knowledge/facets` 聚合已有 `category/tags`，动态生成分类和标签筛选页，不需要提前写死“政治”“财经”“法律”等分类。
 
 `articles.metadata` 用于承载平台、作者、站点、封面等来源特有信息；只有稳定、高频、需要索引或排序的字段才单独加列，例如 `published_at`。
+
+---
+
+## 偏好记忆与反馈
+
+内容过滤不再只依赖关键词。用户提交链接时可以写下收藏意图，知识库卡片和详情页也提供“有用 / 没用 / 类似通知 / 类似静默”反馈。后端把这些显式动作写入 `content_feedback`，再生成可编辑的 `user_memories`，最后聚合为 `preference_profiles`。
+
+过滤器读取画像时只把它当作“偏好证据”，不把网页正文或记忆内容当作系统指令。当前画像会影响 `pass / silent / discard` 倾向：
+
+- `notify` / “类似通知”：类似内容更倾向 `pass`
+- `silent` / “类似静默”：类似内容更倾向 `silent`
+- `reject` / “没用”：普通质量的类似内容更倾向 `discard`
+- `intent`：帮助模型理解用户收藏链接的真实目的
+
+前台设置页可以查看、编辑、停用或删除记忆，也可以关闭“记忆参与过滤”。这个设计参考 Dify 的反馈与标注日志、Open WebUI 的可见用户记忆、LangMem 的记忆类型拆分，以及 Mem0 / Khoj / Letta / Graphiti 的个人长期记忆思路；Codo 当前不引入外部记忆服务，先保留轻量、透明、可控的本地实现。
 
 ---
 

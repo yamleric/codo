@@ -163,6 +163,56 @@ export interface QAResponse {
   citations: KnowledgeCitation[]
 }
 
+export type FeedbackRating = 'useful' | 'not_useful' | 'notify_similar' | 'silent_similar' | 'discard_similar'
+
+export interface ContentFeedback {
+  id: string
+  user_id: string
+  target_type: string
+  target_id: string
+  rating: FeedbackRating | string
+  intent: string
+  comment: string
+  source: string
+  created_at: string
+  updated_at: string
+}
+
+export type MemoryType = 'interest' | 'notify' | 'silent' | 'reject' | 'intent'
+
+export interface UserMemory {
+  id: string
+  user_id: string
+  memory_type: MemoryType | string
+  content: string
+  confidence: number
+  source_type: string
+  source_id: string
+  disabled_at: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PreferenceProfile {
+  user_id: string
+  memory_enabled: boolean
+  interests: string[]
+  notify_preferences: string[]
+  archive_preferences: string[]
+  reject_patterns: string[]
+  recent_intents: string[]
+  feedback_count: number
+  memory_count: number
+  version: number
+  updated_at: string
+}
+
+export interface PreferenceMemoryResponse {
+  profile: PreferenceProfile
+  memories: UserMemory[]
+  feedback: ContentFeedback[]
+}
+
 export interface AuthStatus {
   setup_required: boolean
   authenticated: boolean

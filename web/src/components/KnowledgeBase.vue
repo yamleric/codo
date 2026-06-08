@@ -143,6 +143,20 @@
               <button v-for="tag in result.tags" :key="tag" type="button" @click="selectTag(tag)">{{ tag }}</button>
             </div>
             <div class="knowledge-card-actions">
+              <div class="knowledge-feedback-actions" :aria-label="`反馈 ${resultTitle(result)}`">
+                <button type="button" title="有用" :disabled="isFeedbackLoading(result.article_id)" @click="sendArticleFeedback(result.article_id, 'useful')">
+                  <ThumbsUp :size="13" />
+                </button>
+                <button type="button" title="没用" :disabled="isFeedbackLoading(result.article_id)" @click="sendArticleFeedback(result.article_id, 'not_useful')">
+                  <ThumbsDown :size="13" />
+                </button>
+                <button type="button" title="以后类似通知" :disabled="isFeedbackLoading(result.article_id)" @click="sendArticleFeedback(result.article_id, 'notify_similar')">
+                  <BellRing :size="13" />
+                </button>
+                <button type="button" title="以后类似静默" :disabled="isFeedbackLoading(result.article_id)" @click="sendArticleFeedback(result.article_id, 'silent_similar')">
+                  <Archive :size="13" />
+                </button>
+              </div>
               <button type="button" class="knowledge-read-button" @click="openArticle(result.article_id, 'content')">
                 <BookOpenText :size="13" />
                 解析
@@ -171,6 +185,20 @@
               <button v-for="tag in article.tags" :key="tag" type="button" @click="selectTag(tag)">{{ tag }}</button>
             </div>
             <div class="knowledge-card-actions">
+              <div class="knowledge-feedback-actions" :aria-label="`反馈 ${articleTitle(article)}`">
+                <button type="button" title="有用" :disabled="isFeedbackLoading(article.id)" @click="sendArticleFeedback(article.id, 'useful')">
+                  <ThumbsUp :size="13" />
+                </button>
+                <button type="button" title="没用" :disabled="isFeedbackLoading(article.id)" @click="sendArticleFeedback(article.id, 'not_useful')">
+                  <ThumbsDown :size="13" />
+                </button>
+                <button type="button" title="以后类似通知" :disabled="isFeedbackLoading(article.id)" @click="sendArticleFeedback(article.id, 'notify_similar')">
+                  <BellRing :size="13" />
+                </button>
+                <button type="button" title="以后类似静默" :disabled="isFeedbackLoading(article.id)" @click="sendArticleFeedback(article.id, 'silent_similar')">
+                  <Archive :size="13" />
+                </button>
+              </div>
               <button type="button" class="knowledge-read-button" @click="openArticle(article.id, 'content')">
                 <BookOpenText :size="13" />
                 解析
@@ -229,6 +257,26 @@
             <span>{{ contentStats }}</span>
           </div>
 
+          <div class="article-reader-feedback">
+            <button type="button" :disabled="isFeedbackLoading(selectedArticle.id)" @click="sendArticleFeedback(selectedArticle.id, 'useful')">
+              <ThumbsUp :size="13" />
+              有用
+            </button>
+            <button type="button" :disabled="isFeedbackLoading(selectedArticle.id)" @click="sendArticleFeedback(selectedArticle.id, 'not_useful')">
+              <ThumbsDown :size="13" />
+              没用
+            </button>
+            <button type="button" :disabled="isFeedbackLoading(selectedArticle.id)" @click="sendArticleFeedback(selectedArticle.id, 'notify_similar')">
+              <BellRing :size="13" />
+              类似通知
+            </button>
+            <button type="button" :disabled="isFeedbackLoading(selectedArticle.id)" @click="sendArticleFeedback(selectedArticle.id, 'silent_similar')">
+              <Archive :size="13" />
+              类似静默
+            </button>
+            <span v-if="feedbackState[selectedArticle.id]">{{ feedbackState[selectedArticle.id] }}</span>
+          </div>
+
           <div class="article-reader-tabs" role="tablist" aria-label="阅读内容切换">
             <button type="button" :class="{ active: readerMode === 'summary' }" @click="readerMode = 'summary'">
               <MessageSquareText :size="14" />
@@ -280,6 +328,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
+  Archive,
+  BellRing,
   BookOpenText,
   Bot,
   CircleAlert,
@@ -294,10 +344,12 @@ import {
   SearchCheck,
   Send,
   Tags,
+  ThumbsDown,
+  ThumbsUp,
   X,
 } from '@lucide/vue'
 import { api } from '../api'
-import type { Article, FacetRow, KnowledgeCitation, KnowledgeFacets, QAResponse, SearchResult } from '../types'
+import type { Article, FacetRow, FeedbackRating, KnowledgeCitation, KnowledgeFacets, QAResponse, SearchResult } from '../types'
 
 type FacetMode = 'category' | 'tag'
 
@@ -322,6 +374,8 @@ const selectedArticleID = ref('')
 const readerMode = ref<'summary' | 'content'>('content')
 const detailLoading = ref(false)
 const detailError = ref('')
+const feedbackLoading = ref<Record<string, boolean>>({})
+const feedbackState = ref<Record<string, string>>({})
 
 const visibleFacets = computed<FacetRow[]>(() => {
   const source = facetMode.value === 'category' ? facets.value?.categories : facets.value?.tags
@@ -469,6 +523,40 @@ function closeArticle() {
   readerMode.value = 'content'
   detailError.value = ''
   detailLoading.value = false
+}
+
+function isFeedbackLoading(articleID: string) {
+  return !!feedbackLoading.value[articleID]
+}
+
+async function sendArticleFeedback(articleID: string, rating: FeedbackRating) {
+  if (!articleID || isFeedbackLoading(articleID)) return
+  feedbackLoading.value = { ...feedbackLoading.value, [articleID]: true }
+  feedbackState.value = { ...feedbackState.value, [articleID]: '' }
+  try {
+    await api.sendFeedback({
+      target_type: 'article',
+      target_id: articleID,
+      rating,
+      source: 'knowledge',
+    })
+    feedbackState.value = { ...feedbackState.value, [articleID]: feedbackLabel(rating) }
+  } catch {
+    feedbackState.value = { ...feedbackState.value, [articleID]: '反馈失败' }
+  } finally {
+    feedbackLoading.value = { ...feedbackLoading.value, [articleID]: false }
+  }
+}
+
+function feedbackLabel(rating: FeedbackRating) {
+  const labels: Record<FeedbackRating, string> = {
+    useful: '已记为有用',
+    not_useful: '已记为低价值',
+    notify_similar: '以后类似内容会更倾向通知',
+    silent_similar: '以后类似内容会更倾向静默',
+    discard_similar: '以后类似内容会更倾向丢弃',
+  }
+  return labels[rating]
 }
 
 function articleTitle(article: Article) {

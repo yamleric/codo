@@ -83,6 +83,7 @@
   <tr><th>功能</th><th>描述</th><th>用法</th></tr>
   <tr><td>一键收藏</td><td>好内容随手存入知识库，自动打标签分类</td><td>看到好文章发链接给 Codo，自动入库，无需手动整理</td></tr>
   <tr><td>记忆查询</td><td>自然语言检索历史记录，如"我之前收藏过关于XX的文章吗"</td><td>想找之前看过的某个知识点，直接问 Codo</td></tr>
+  <tr><td>偏好记忆</td><td>通过收藏意图和摘要反馈学习你的内容偏好，过滤越用越贴合</td><td>提交链接时写下意图，或在知识库里点“有用 / 没用 / 类似通知 / 类似静默”</td></tr>
   <tr><td>日报 / 周报</td><td>每日/每周自动生成信息摘要，一览所有动态</td><td>每天早上或每周一收到自动生成的摘要，回顾近期信息</td></tr>
 </table>
 
@@ -131,3 +132,5 @@
 
 - [emersion/go-imap](https://github.com/emersion/go-imap)：IMAP 客户端，用于只读连接邮箱和拉取邮件。
 - [emersion/go-message](https://github.com/emersion/go-message)：MIME 邮件解析，用于提取纯文本/HTML 正文并跳过附件。
+
+偏好记忆参考了个人 AI 与知识管理项目的常见设计：Dify 的反馈与标注日志、Open WebUI 的可见/可删用户记忆、LangMem 的 semantic / episodic / procedural memory 拆分、Mem0 的长期记忆抽象，以及 Khoj / Letta / Graphiti 在个人知识与时序记忆上的思路。Codo 当前没有引入这些项目作为运行依赖，而是实现轻量版：显式反馈入库，生成用户可编辑的记忆画像，再注入内容过滤提示词。

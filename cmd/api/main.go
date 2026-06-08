@@ -75,9 +75,7 @@ func (s *server) onStatus(snap task.Snapshot) {
 
 // POST /api/tasks
 func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		URL string `json:"url"`
-	}
+	var body taskPayload
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil || strings.TrimSpace(body.URL) == "" {
 		http.Error(w, "invalid url", http.StatusBadRequest)
 		return
@@ -92,6 +90,11 @@ func (s *server) createTask(w http.ResponseWriter, r *http.Request) {
 	userID := defaultUserID()
 	id := fmt.Sprintf("task-%d", time.Now().UnixMilli())
 	t := task.New(id, userID, task.SourceManual, contentType, normalizedURL, "")
+	if intent := strings.TrimSpace(body.Intent); intent != "" {
+		if _, err := s.st.AddManualIntentMemory(r.Context(), userID, id, normalizedURL, intent); err != nil {
+			slog.Warn("record submit intent failed", "task", id, "err", err)
+		}
+	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), taskTimeout(contentType))
@@ -779,6 +782,180 @@ func (s *server) knowledgeQA(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(result)
 }
 
+// POST /api/feedback
+func (s *server) feedback(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "POST,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body feedbackPayload
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	userID := defaultUserID()
+	row, err := s.st.SaveContentFeedback(r.Context(), userID, store.FeedbackInput{
+		TargetType: body.TargetType,
+		TargetID:   body.TargetID,
+		Rating:     body.Rating,
+		Intent:     body.Intent,
+		Comment:    body.Comment,
+		Source:     body.Source,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(row)
+}
+
+// GET /api/preference-memory
+// PATCH /api/preference-memory
+func (s *server) preferenceMemory(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "GET,PATCH,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	userID := defaultUserID()
+	switch r.Method {
+	case http.MethodGet:
+		s.writePreferenceMemory(w, r, userID)
+	case http.MethodPatch:
+		var body preferenceProfilePatch
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		if body.MemoryEnabled != nil {
+			if _, err := s.st.SetPreferenceMemoryEnabled(r.Context(), userID, *body.MemoryEnabled); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		s.writePreferenceMemory(w, r, userID)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// POST /api/preference-memory/memories
+func (s *server) memories(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "POST,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var body memoryPayload
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid payload", http.StatusBadRequest)
+		return
+	}
+	userID := defaultUserID()
+	memory, err := s.st.UpsertUserMemory(r.Context(), userID, store.UserMemoryInput{
+		MemoryType: body.MemoryType,
+		Content:    body.Content,
+		Confidence: body.Confidence,
+		Disabled:   body.Disabled,
+	})
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(memory)
+}
+
+// PATCH /api/preference-memory/memories/:id
+// DELETE /api/preference-memory/memories/:id
+func (s *server) memoryByID(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+	w.Header().Set("Access-Control-Allow-Methods", "PATCH,DELETE,OPTIONS")
+	if r.Method == http.MethodOptions {
+		return
+	}
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/api/preference-memory/memories/"), "/")
+	if id == "" || strings.Contains(id, "/") {
+		http.Error(w, "memory not found", http.StatusNotFound)
+		return
+	}
+	userID := defaultUserID()
+	switch r.Method {
+	case http.MethodPatch:
+		var body memoryPayload
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			http.Error(w, "invalid payload", http.StatusBadRequest)
+			return
+		}
+		memory, err := s.st.UpdateUserMemory(r.Context(), userID, id, store.UserMemoryInput{
+			MemoryType: body.MemoryType,
+			Content:    body.Content,
+			Confidence: body.Confidence,
+			Disabled:   body.Disabled,
+		})
+		if err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				http.Error(w, "memory not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(memory)
+	case http.MethodDelete:
+		if err := s.st.DeleteUserMemory(r.Context(), userID, id); err != nil {
+			if errors.Is(err, pgx.ErrNoRows) {
+				http.Error(w, "memory not found", http.StatusNotFound)
+				return
+			}
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+	default:
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+func (s *server) writePreferenceMemory(w http.ResponseWriter, r *http.Request, userID string) {
+	profile, err := s.st.GetPreferenceProfile(r.Context(), userID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	memories, err := s.st.ListUserMemories(r.Context(), userID, true, 80)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	feedback, err := s.st.ListContentFeedback(r.Context(), userID, 40)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(preferenceMemoryResponse{
+		Profile:  profile,
+		Memories: memories,
+		Feedback: feedback,
+	})
+}
+
 type subscriptionPayload struct {
 	SourceType      *string `json:"source_type"`
 	FeedURL         *string `json:"feed_url"`
@@ -801,6 +978,11 @@ type subscriptionPayload struct {
 	SyncUnreadOnly  *bool   `json:"sync_unread_only"`
 }
 
+type taskPayload struct {
+	URL    string `json:"url"`
+	Intent string `json:"intent"`
+}
+
 type bookmarkPayload struct {
 	URL    *string `json:"url"`
 	Title  *string `json:"title"`
@@ -821,6 +1003,32 @@ type bookmarkSyncPayload struct {
 
 type qaPayload struct {
 	Question string `json:"question"`
+}
+
+type feedbackPayload struct {
+	TargetType string `json:"target_type"`
+	TargetID   string `json:"target_id"`
+	Rating     string `json:"rating"`
+	Intent     string `json:"intent"`
+	Comment    string `json:"comment"`
+	Source     string `json:"source"`
+}
+
+type memoryPayload struct {
+	MemoryType string  `json:"memory_type"`
+	Content    string  `json:"content"`
+	Confidence float64 `json:"confidence"`
+	Disabled   bool    `json:"disabled"`
+}
+
+type preferenceMemoryResponse struct {
+	Profile  store.PreferenceProfile    `json:"profile"`
+	Memories []store.UserMemoryRow      `json:"memories"`
+	Feedback []store.ContentFeedbackRow `json:"feedback"`
+}
+
+type preferenceProfilePatch struct {
+	MemoryEnabled *bool `json:"memory_enabled"`
 }
 
 type settingsResponse struct {
@@ -1055,6 +1263,10 @@ func main() {
 	apiMux.HandleFunc("/api/knowledge/facets", srv.knowledgeFacets)
 	apiMux.HandleFunc("/api/search", srv.searchKnowledge)
 	apiMux.HandleFunc("/api/qa", srv.knowledgeQA)
+	apiMux.HandleFunc("/api/feedback", srv.feedback)
+	apiMux.HandleFunc("/api/preference-memory", srv.preferenceMemory)
+	apiMux.HandleFunc("/api/preference-memory/memories", srv.memories)
+	apiMux.HandleFunc("/api/preference-memory/memories/", srv.memoryByID)
 	apiMux.HandleFunc("/api/settings", srv.settings)
 
 	mux := http.NewServeMux()

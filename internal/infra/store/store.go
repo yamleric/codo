@@ -1285,11 +1285,18 @@ func (s *Store) GetLLMPreferences(ctx context.Context, userID string) (llm.UserP
 	if err != nil {
 		return llm.UserPreferences{}, err
 	}
+	memoryEnabled, preferenceMemory, err := s.PreferencePrompt(ctx, userID)
+	if err != nil {
+		memoryEnabled = false
+		preferenceMemory = ""
+	}
 	return llm.UserPreferences{
-		FilterKeywords:  settings.FilterKeywords,
-		SummaryStyle:    settings.ModelPolicy.SummaryStyle,
-		Language:        settings.ModelPolicy.Language,
-		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
+		FilterKeywords:   settings.FilterKeywords,
+		SummaryStyle:     settings.ModelPolicy.SummaryStyle,
+		Language:         settings.ModelPolicy.Language,
+		MaxSummaryChars:  settings.ModelPolicy.MaxSummaryChars,
+		MemoryEnabled:    memoryEnabled,
+		PreferenceMemory: preferenceMemory,
 	}, nil
 }
 
