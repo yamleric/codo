@@ -1,10 +1,14 @@
 package main
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"net/mail"
@@ -68,6 +72,11 @@ type server struct {
 	hub       *hub
 	knowledge *knowledgeapp.Service
 }
+
+const (
+	linuxDoBookmarkUploadMaxBytes = 12 << 20
+	linuxDoBookmarkImportLimit    = 1000
+)
 
 func (s *server) onStatus(snap task.Snapshot) {
 	s.hub.broadcast(snap)
@@ -531,6 +540,14 @@ func (s *server) bookmarkByID(w http.ResponseWriter, r *http.Request) {
 		s.syncBookmarks(w, r, userID)
 		return
 	}
+	if path == "linuxdo" {
+		if r.Method != http.MethodPost {
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		s.importLinuxDoBookmarks(w, r, userID)
+		return
+	}
 	if path == "" || strings.Contains(path, "/") {
 		http.Error(w, "bookmark not found", http.StatusNotFound)
 		return
@@ -586,9 +603,50 @@ func (s *server) syncBookmarks(w http.ResponseWriter, r *http.Request, userID st
 	json.NewEncoder(w).Encode(map[string]any{"queued": len(taskIDs), "task_ids": taskIDs})
 }
 
+func (s *server) importLinuxDoBookmarks(w http.ResponseWriter, r *http.Request, userID string) {
+	r.Body = http.MaxBytesReader(w, r.Body, linuxDoBookmarkUploadMaxBytes)
+	file, _, err := r.FormFile("file")
+	if err != nil {
+		http.Error(w, "missing linux.do export file", http.StatusBadRequest)
+		return
+	}
+	defer file.Close()
+
+	raw, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "read upload failed", http.StatusBadRequest)
+		return
+	}
+	csvData, err := linuxDoBookmarksCSV(raw)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	inputs, parsed, ignored, err := linuxDoBookmarkInputsFromCSV(csvData)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	if len(inputs) == 0 {
+		http.Error(w, "no linux.do bookmarks found", http.StatusBadRequest)
+		return
+	}
+	result, err := s.st.AddBookmarks(r.Context(), userID, inputs)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(linuxDoBookmarkImportResponse{
+		BookmarkImportResult: result,
+		Parsed:               parsed,
+		Ignored:              ignored,
+	})
+}
+
 func (s *server) runBookmark(userID string, bookmark store.BookmarkRow, taskID string) {
 	contentType := ingest.DetectContentType(bookmark.URL)
-	t := task.New(taskID, userID, task.SourceBookmark, contentType, bookmark.URL, "")
+	t := task.New(taskID, userID, bookmarkTaskSource(bookmark), contentType, bookmark.URL, "")
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), taskTimeout(contentType))
 		defer cancel()
@@ -999,6 +1057,12 @@ type bookmarkImportPayload struct {
 
 type bookmarkSyncPayload struct {
 	IDs []string `json:"ids"`
+}
+
+type linuxDoBookmarkImportResponse struct {
+	store.BookmarkImportResult
+	Parsed  int `json:"parsed"`
+	Ignored int `json:"ignored"`
 }
 
 type qaPayload struct {
@@ -1495,6 +1559,139 @@ func bookmarkInputsFromPayload(body bookmarkImportPayload) []store.BookmarkInput
 		out = append(out, input)
 	}
 	return out
+}
+
+func linuxDoBookmarksCSV(raw []byte) ([]byte, error) {
+	if len(raw) == 0 {
+		return nil, fmt.Errorf("empty linux.do export file")
+	}
+	if bytes.HasPrefix(raw, []byte("PK\x03\x04")) {
+		zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+		if err != nil {
+			return nil, fmt.Errorf("invalid zip file")
+		}
+		for _, file := range zr.File {
+			name := strings.ToLower(strings.TrimSpace(file.Name))
+			if name != "bookmarks.csv" && !strings.HasSuffix(name, "/bookmarks.csv") {
+				continue
+			}
+			rc, err := file.Open()
+			if err != nil {
+				return nil, fmt.Errorf("read bookmarks.csv failed")
+			}
+			defer rc.Close()
+			data, err := io.ReadAll(io.LimitReader(rc, linuxDoBookmarkUploadMaxBytes+1))
+			if err != nil {
+				return nil, fmt.Errorf("read bookmarks.csv failed")
+			}
+			if len(data) > linuxDoBookmarkUploadMaxBytes {
+				return nil, fmt.Errorf("bookmarks.csv is too large")
+			}
+			return data, nil
+		}
+		return nil, fmt.Errorf("bookmarks.csv not found in linux.do export")
+	}
+	return raw, nil
+}
+
+func linuxDoBookmarkInputsFromCSV(data []byte) ([]store.BookmarkInput, int, int, error) {
+	reader := csv.NewReader(bytes.NewReader(data))
+	reader.FieldsPerRecord = -1
+	header, err := reader.Read()
+	if err != nil {
+		return nil, 0, 0, fmt.Errorf("invalid bookmarks.csv")
+	}
+	index := csvHeaderIndex(header)
+	linkIndex, ok := index["link"]
+	if !ok {
+		return nil, 0, 0, fmt.Errorf("bookmarks.csv missing link column")
+	}
+
+	var parsed, ignored int
+	inputs := make([]store.BookmarkInput, 0, 256)
+	seen := make(map[string]struct{}, 256)
+	for {
+		record, err := reader.Read()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return nil, parsed, ignored, fmt.Errorf("invalid bookmarks.csv row")
+		}
+		parsed++
+		if linkIndex >= len(record) {
+			ignored++
+			continue
+		}
+		normalized, err := ingest.NormalizeURL(record[linkIndex])
+		if err != nil || !isLinuxDoURL(normalized) {
+			ignored++
+			continue
+		}
+		if _, exists := seen[normalized]; exists {
+			ignored++
+			continue
+		}
+		seen[normalized] = struct{}{}
+		if len(inputs) >= linuxDoBookmarkImportLimit {
+			ignored++
+			continue
+		}
+		inputs = append(inputs, store.BookmarkInput{
+			URL:    normalized,
+			Title:  linuxDoCSVValue(record, index, "name"),
+			Folder: "linux.do",
+			Note:   linuxDoBookmarkNote(record, index),
+		})
+	}
+	return inputs, parsed, ignored, nil
+}
+
+func csvHeaderIndex(header []string) map[string]int {
+	index := make(map[string]int, len(header))
+	for i, name := range header {
+		name = strings.TrimPrefix(strings.TrimSpace(strings.ToLower(name)), "\ufeff")
+		if name == "" {
+			continue
+		}
+		index[name] = i
+	}
+	return index
+}
+
+func linuxDoBookmarkNote(record []string, index map[string]int) string {
+	parts := []string{"linux.do bookmark export"}
+	if value := linuxDoCSVValue(record, index, "bookmarkable_type"); value != "" {
+		parts = append(parts, "type: "+value)
+	}
+	if value := linuxDoCSVValue(record, index, "created_at"); value != "" {
+		parts = append(parts, "bookmarked_at: "+value)
+	}
+	return strings.Join(parts, "; ")
+}
+
+func linuxDoCSVValue(record []string, index map[string]int, key string) string {
+	i, ok := index[key]
+	if !ok || i >= len(record) {
+		return ""
+	}
+	return strings.TrimSpace(record[i])
+}
+
+func bookmarkTaskSource(bookmark store.BookmarkRow) task.SourceType {
+	if isLinuxDoURL(bookmark.URL) {
+		return task.SourceLinuxDo
+	}
+	return task.SourceBookmark
+}
+
+func isLinuxDoURL(rawURL string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return false
+	}
+	host := strings.ToLower(parsed.Hostname())
+	return host == "linux.do" || strings.HasSuffix(host, ".linux.do")
 }
 
 func stringValue(value *string) string {

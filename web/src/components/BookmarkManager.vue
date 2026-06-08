@@ -63,6 +63,21 @@
           </button>
         </footer>
       </form>
+      <form class="bookmark-linuxdo-form" @submit.prevent="importLinuxDoArchive">
+        <label for="bookmark-linuxdo-file">Linux.do 书签导出</label>
+        <div class="bookmark-file-drop">
+          <input id="bookmark-linuxdo-file" type="file" accept=".csv,.zip,text/csv,application/zip" @change="onLinuxDoFileChange" />
+          <span>{{ linuxDoFileName || '选择 bookmarks.csv 或导出 zip' }}</span>
+        </div>
+        <footer>
+          <span>导入后可同步进知识库问答</span>
+          <button type="submit" :disabled="importing || !linuxDoFile">
+            <LoaderCircle v-if="importing" :size="15" class="spinning" />
+            <Upload v-else :size="15" />
+            导入 Linux.do
+          </button>
+        </footer>
+      </form>
     </div>
 
     <div v-if="notice" class="bookmark-notice" :class="{ danger: noticeType === 'error' }">
@@ -198,6 +213,7 @@ const saving = ref(false)
 const singleURL = ref('')
 const defaultFolder = ref('')
 const bulkText = ref('')
+const linuxDoFile = ref<File | null>(null)
 const query = ref('')
 const activeFilter = ref<FilterID>('all')
 const notice = ref('')
@@ -218,6 +234,7 @@ const syncedCount = computed(() => bookmarks.value.filter(item => item.status ==
 const folderCount = computed(() => new Set(bookmarks.value.map(item => item.folder).filter(Boolean)).size)
 const syncableCount = computed(() => bookmarks.value.filter(item => item.status === 'pending' || item.status === 'failed').length)
 const extractedCount = computed(() => extractURLs(bulkText.value).length)
+const linuxDoFileName = computed(() => linuxDoFile.value?.name || '')
 
 const visibleBookmarks = computed(() => {
   const term = query.value.trim().toLowerCase()
@@ -253,6 +270,29 @@ async function importText() {
   if (!bulkText.value.trim()) return
   await importPayload({ text: bulkText.value, folder: defaultFolder.value.trim() })
   bulkText.value = ''
+}
+
+function onLinuxDoFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  linuxDoFile.value = input.files?.[0] ?? null
+  notice.value = ''
+}
+
+async function importLinuxDoArchive() {
+  if (!linuxDoFile.value) return
+  importing.value = true
+  try {
+    const result = await api.importLinuxDoBookmarks(linuxDoFile.value)
+    linuxDoFile.value = null
+    const fileInput = document.getElementById('bookmark-linuxdo-file') as HTMLInputElement | null
+    if (fileInput) fileInput.value = ''
+    await load()
+    showNotice(`解析 ${result.parsed} 条，导入 ${result.imported} 个，更新 ${result.updated} 个，跳过 ${result.skipped + result.ignored} 个。`, 'success')
+  } catch {
+    showNotice('Linux.do 导入失败，请选择包含 bookmarks.csv 的导出文件。', 'error')
+  } finally {
+    importing.value = false
+  }
 }
 
 async function importPayload(payload: { url?: string; text?: string; folder?: string }) {

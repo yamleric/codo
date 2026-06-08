@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Article, AuthStatus, Bookmark, BookmarkImportResult, FeedbackRating, KnowledgeFacets, MemoryType, PreferenceMemoryResponse, QAResponse, SearchResponse, SourceItem, Subscription, Task, UserMemory, UserSettings, UserSettingsPatch } from './types'
+import type { Article, AuthStatus, Bookmark, BookmarkImportResult, FeedbackRating, KnowledgeFacets, LinuxDoBookmarkImportResult, MemoryType, PreferenceMemoryResponse, QAResponse, SearchResponse, SourceItem, Subscription, Task, UserMemory, UserSettings, UserSettingsPatch } from './types'
 
 axios.defaults.withCredentials = true
 
@@ -64,6 +64,12 @@ export const api = {
 
   importBookmarks: (payload: { url?: string; text?: string; folder?: string; bookmarks?: Array<{ url: string; title?: string; folder?: string; note?: string }> }) =>
     axios.post<BookmarkImportResult>('/api/bookmarks', payload).then(r => r.data),
+
+  importLinuxDoBookmarks: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return axios.post<LinuxDoBookmarkImportResult>('/api/bookmarks/linuxdo', form).then(r => r.data)
+  },
 
   updateBookmark: (id: string, payload: Partial<Pick<Bookmark, 'title' | 'folder' | 'note'>>) =>
     axios.patch(`/api/bookmarks/${id}`, payload),

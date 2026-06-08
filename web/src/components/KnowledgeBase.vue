@@ -622,6 +622,9 @@ function sourceLabel(source: string) {
     rss: 'RSS',
     bookmark: '收藏夹',
     wechat_mp: '公众号',
+    linux_do: 'linux.do',
+    email: '邮件',
+    chaoxing: '学习通',
   }
   return labels[source] || source || '未知'
 }

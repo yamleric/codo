@@ -3,6 +3,7 @@ package main
 import (
 	"testing"
 
+	"github.com/codo/codo/internal/domain/task"
 	"github.com/codo/codo/internal/infra/store"
 )
 
@@ -47,6 +48,44 @@ func TestBookmarkInputsFromPayloadKeepsExplicitMetadata(t *testing.T) {
 	}
 	if inputs[0].Title != title || inputs[0].Folder != folder || inputs[0].Note != note {
 		t.Fatalf("metadata not preserved: %#v", inputs[0])
+	}
+}
+
+func TestLinuxDoBookmarkInputsFromCSVFiltersAndDeduplicates(t *testing.T) {
+	csvData := []byte(`bookmarkable_id,bookmarkable_type,link,name,created_at
+1,Post,https://linux.do/t/topic/123/4,,2026-06-01 10:00:00
+2,Topic,https://linux.do/t/topic/123/4,,2026-06-01 10:01:00
+3,Post,https://meta.linux.do/t/topic/456,Meta topic,2026-06-01 10:02:00
+4,Post,https://example.com/t/topic/999,外部链接,2026-06-01 10:03:00
+5,Post,,空链接,2026-06-01 10:04:00
+`)
+
+	inputs, parsed, ignored, err := linuxDoBookmarkInputsFromCSV(csvData)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parsed != 5 || ignored != 3 {
+		t.Fatalf("parsed=%d ignored=%d, want parsed=5 ignored=3", parsed, ignored)
+	}
+	if len(inputs) != 2 {
+		t.Fatalf("len(inputs) = %d, want 2: %#v", len(inputs), inputs)
+	}
+	if inputs[0].URL != "https://linux.do/t/topic/123/4" || inputs[0].Folder != "linux.do" {
+		t.Fatalf("unexpected first input: %#v", inputs[0])
+	}
+	if inputs[1].Title != "Meta topic" || inputs[1].URL != "https://meta.linux.do/t/topic/456" {
+		t.Fatalf("unexpected second input: %#v", inputs[1])
+	}
+}
+
+func TestBookmarkTaskSourceDetectsLinuxDo(t *testing.T) {
+	source := bookmarkTaskSource(store.BookmarkRow{URL: "https://linux.do/t/topic/123"})
+	if source != task.SourceLinuxDo {
+		t.Fatalf("source = %q, want %q", source, task.SourceLinuxDo)
+	}
+	source = bookmarkTaskSource(store.BookmarkRow{URL: "https://example.com/article"})
+	if source != task.SourceBookmark {
+		t.Fatalf("source = %q, want %q", source, task.SourceBookmark)
 	}
 }
 

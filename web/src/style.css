@@ -2466,7 +2466,7 @@ select:focus-visible {
 
 .bookmark-import {
   display: grid;
-  grid-template-columns: minmax(280px, 0.75fr) minmax(0, 1.25fr);
+  grid-template-columns: minmax(260px, 0.75fr) minmax(280px, 1fr) minmax(260px, 0.9fr);
   gap: 12px;
   padding: 14px 16px;
   background: #f7f9f6;
@@ -2474,14 +2474,16 @@ select:focus-visible {
 }
 
 .bookmark-url-form,
-.bookmark-text-form {
+.bookmark-text-form,
+.bookmark-linuxdo-form {
   display: grid;
   gap: 7px;
   min-width: 0;
 }
 
 .bookmark-url-form label,
-.bookmark-text-form label {
+.bookmark-text-form label,
+.bookmark-linuxdo-form label {
   color: var(--muted);
   font-size: 9px;
   font-weight: 600;
@@ -2494,7 +2496,8 @@ select:focus-visible {
 }
 
 .bookmark-url-form input,
-.bookmark-text-form textarea {
+.bookmark-text-form textarea,
+.bookmark-file-drop {
   width: 100%;
   min-width: 0;
   color: var(--ink);
@@ -2517,14 +2520,42 @@ select:focus-visible {
   resize: vertical;
 }
 
+.bookmark-file-drop {
+  position: relative;
+  display: flex;
+  height: 78px;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 10px;
+  color: var(--muted);
+  text-align: center;
+  border-style: dashed;
+}
+
+.bookmark-file-drop input {
+  position: absolute;
+  inset: 0;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.bookmark-file-drop span {
+  overflow: hidden;
+  max-width: 100%;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .bookmark-url-form input:focus,
-.bookmark-text-form textarea:focus {
+.bookmark-text-form textarea:focus,
+.bookmark-file-drop:focus-within {
   border-color: #6b9b8e;
   box-shadow: 0 0 0 3px rgb(23 107 91 / 8%);
 }
 
 .bookmark-url-form button,
-.bookmark-text-form button {
+.bookmark-text-form button,
+.bookmark-linuxdo-form button {
   display: inline-flex;
   height: 34px;
   align-items: center;
@@ -2540,19 +2571,22 @@ select:focus-visible {
 }
 
 .bookmark-url-form button:disabled,
-.bookmark-text-form button:disabled {
+.bookmark-text-form button:disabled,
+.bookmark-linuxdo-form button:disabled {
   cursor: not-allowed;
   opacity: 0.45;
 }
 
-.bookmark-text-form footer {
+.bookmark-text-form footer,
+.bookmark-linuxdo-form footer {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 10px;
 }
 
-.bookmark-text-form footer span {
+.bookmark-text-form footer span,
+.bookmark-linuxdo-form footer span {
   color: var(--faint);
   font-size: 9px;
 }
