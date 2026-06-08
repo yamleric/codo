@@ -66,6 +66,19 @@ type Classification struct {
 	Reason   string   `json:"reason,omitempty"`
 }
 
+type Translation struct {
+	Status          string `json:"status"`
+	SourceLang      string `json:"source_lang,omitempty"`
+	TargetLang      string `json:"target_lang,omitempty"`
+	Content         string `json:"content,omitempty"`
+	Provider        string `json:"provider,omitempty"`
+	Scope           string `json:"scope,omitempty"`
+	Reason          string `json:"reason,omitempty"`
+	OriginalChars   int    `json:"original_chars,omitempty"`
+	TranslatedChars int    `json:"translated_chars,omitempty"`
+	Truncated       bool   `json:"truncated,omitempty"`
+}
+
 func NormalizeClassification(c Classification) Classification {
 	c.Category = truncateRunes(strings.TrimSpace(c.Category), 12)
 	if c.Category == "" {
@@ -135,6 +148,7 @@ type Task struct {
 	tags           []string
 	summary        string
 	errMsg         string
+	metadata       map[string]any
 	steps          []Step
 	createdAt      time.Time
 	updatedAt      time.Time
@@ -232,6 +246,7 @@ func (t *Task) Summary() string {
 func (t *Task) SetSummary(s string) {
 	t.mu.Lock()
 	t.summary = s
+	t.updatedAt = time.Now()
 	t.mu.Unlock()
 }
 
@@ -239,6 +254,37 @@ func (t *Task) Error() string {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
 	return t.errMsg
+}
+
+func (t *Task) SetMetadataValue(key string, value any) {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return
+	}
+	t.mu.Lock()
+	if t.metadata == nil {
+		t.metadata = map[string]any{}
+	}
+	if value == nil {
+		delete(t.metadata, key)
+	} else {
+		t.metadata[key] = value
+	}
+	t.updatedAt = time.Now()
+	t.mu.Unlock()
+}
+
+func (t *Task) Metadata() map[string]any {
+	t.mu.RLock()
+	defer t.mu.RUnlock()
+	if len(t.metadata) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(t.metadata))
+	for key, value := range t.metadata {
+		out[key] = value
+	}
+	return out
 }
 
 func (t *Task) AddStep(s Step) {

@@ -1096,17 +1096,18 @@ type preferenceProfilePatch struct {
 }
 
 type settingsResponse struct {
-	UserID          string                `json:"user_id"`
-	Username        string                `json:"username"`
-	NotifyChannel   string                `json:"notify_channel"`
-	NotifyPolicy    string                `json:"notify_policy"`
-	SummaryStyle    string                `json:"summary_style"`
-	Language        string                `json:"language"`
-	MaxSummaryChars int                   `json:"max_summary_chars"`
-	FilterKeywords  []string              `json:"filter_keywords"`
-	DailyReport     store.DailyReport     `json:"daily_report"`
-	Runtime         settingsRuntime       `json:"runtime"`
-	RuntimeConfig   runtimeConfigResponse `json:"runtime_config"`
+	UserID          string                  `json:"user_id"`
+	Username        string                  `json:"username"`
+	NotifyChannel   string                  `json:"notify_channel"`
+	NotifyPolicy    string                  `json:"notify_policy"`
+	SummaryStyle    string                  `json:"summary_style"`
+	Language        string                  `json:"language"`
+	MaxSummaryChars int                     `json:"max_summary_chars"`
+	FilterKeywords  []string                `json:"filter_keywords"`
+	Translation     store.TranslationPolicy `json:"translation"`
+	DailyReport     store.DailyReport       `json:"daily_report"`
+	Runtime         settingsRuntime         `json:"runtime"`
+	RuntimeConfig   runtimeConfigResponse   `json:"runtime_config"`
 }
 
 type settingsRuntime struct {
@@ -1129,8 +1130,17 @@ type settingsPatch struct {
 	Language        *string             `json:"language"`
 	MaxSummaryChars *int                `json:"max_summary_chars"`
 	FilterKeywords  *[]string           `json:"filter_keywords"`
+	Translation     *translationPatch   `json:"translation"`
 	DailyReport     *dailyReportPatch   `json:"daily_report"`
 	RuntimeConfig   *runtimeConfigPatch `json:"runtime_config"`
+}
+
+type translationPatch struct {
+	Enabled        *bool   `json:"enabled"`
+	Mode           *string `json:"mode"`
+	TargetLanguage *string `json:"target_language"`
+	Scope          *string `json:"scope"`
+	MaxChars       *int    `json:"max_chars"`
 }
 
 type dailyReportPatch struct {
@@ -1158,6 +1168,7 @@ func settingsResponseFromStore(settings store.UserSettings, config store.AppConf
 		Language:        settings.ModelPolicy.Language,
 		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
 		FilterKeywords:  settings.FilterKeywords,
+		Translation:     settings.ModelPolicy.Translation,
 		DailyReport:     settings.DailyReport,
 		Runtime:         runtimeSettings(config),
 		RuntimeConfig:   runtimeConfigResponseFromConfig(config),
@@ -1201,6 +1212,40 @@ func applySettingsPatch(current store.UserSettings, patch settingsPatch) (store.
 	}
 	if patch.FilterKeywords != nil {
 		current.FilterKeywords = *patch.FilterKeywords
+	}
+	if patch.Translation != nil {
+		translation := current.ModelPolicy.Translation
+		if patch.Translation.Enabled != nil {
+			translation.Enabled = *patch.Translation.Enabled
+		}
+		if patch.Translation.Mode != nil {
+			value := strings.TrimSpace(strings.ToLower(*patch.Translation.Mode))
+			if value != "english_only" {
+				return store.UserSettings{}, fmt.Errorf("invalid translation.mode")
+			}
+			translation.Mode = value
+		}
+		if patch.Translation.TargetLanguage != nil {
+			value := strings.TrimSpace(*patch.Translation.TargetLanguage)
+			if value != "zh-CN" {
+				return store.UserSettings{}, fmt.Errorf("invalid translation.target_language")
+			}
+			translation.TargetLanguage = value
+		}
+		if patch.Translation.Scope != nil {
+			value := strings.TrimSpace(strings.ToLower(*patch.Translation.Scope))
+			if value != "summary" && value != "knowledge" && value != "summary_knowledge" {
+				return store.UserSettings{}, fmt.Errorf("invalid translation.scope")
+			}
+			translation.Scope = value
+		}
+		if patch.Translation.MaxChars != nil {
+			if *patch.Translation.MaxChars < 1000 || *patch.Translation.MaxChars > 30000 {
+				return store.UserSettings{}, fmt.Errorf("translation.max_chars must be between 1000 and 30000")
+			}
+			translation.MaxChars = *patch.Translation.MaxChars
+		}
+		current.ModelPolicy.Translation = store.NormalizeTranslationPolicy(translation)
 	}
 	if patch.DailyReport != nil {
 		report := current.DailyReport

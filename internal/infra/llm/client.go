@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/codo/codo/internal/domain/task"
 )
@@ -25,8 +26,17 @@ type UserPreferences struct {
 	SummaryStyle     string
 	Language         string
 	MaxSummaryChars  int
+	Translation      TranslationPolicy
 	MemoryEnabled    bool
 	PreferenceMemory string
+}
+
+type TranslationPolicy struct {
+	Enabled        bool
+	Mode           string
+	TargetLanguage string
+	Scope          string
+	MaxChars       int
 }
 
 type UserPreferencesProvider interface {
@@ -178,6 +188,57 @@ func (c *Client) Summarize(ctx context.Context, t *task.Task, content string) (s
 	return truncate(strings.TrimSpace(out), prefs.MaxSummaryChars), nil
 }
 
+func (c *Client) Translate(ctx context.Context, userID string, content string) (task.Translation, error) {
+	prefs := c.userPreferences(ctx, userID)
+	policy := normalizeTranslationPolicy(prefs.Translation)
+	if !policy.Enabled {
+		return task.Translation{Status: "disabled", Scope: policy.Scope}, nil
+	}
+
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return task.Translation{Status: "skipped", Scope: policy.Scope, Reason: "empty content"}, nil
+	}
+	if policy.Mode == "english_only" && !looksMostlyEnglish(content) {
+		return task.Translation{Status: "skipped", Scope: policy.Scope, Reason: "not english"}, nil
+	}
+
+	originalChars := len([]rune(content))
+	truncated := false
+	content, truncated = truncateWithFlag(content, policy.MaxChars)
+	chunks := splitTranslationChunks(content, 3000)
+	if len(chunks) == 0 {
+		return task.Translation{Status: "skipped", Scope: policy.Scope, Reason: "empty content"}, nil
+	}
+
+	out := make([]string, 0, len(chunks))
+	for _, chunk := range chunks {
+		translated, err := c.complete(ctx, translationPrompt(policy), chunk)
+		if err != nil {
+			return task.Translation{Status: "error", Scope: policy.Scope, Reason: err.Error()}, fmt.Errorf("translate: %w", err)
+		}
+		translated = strings.TrimSpace(translated)
+		if translated != "" {
+			out = append(out, translated)
+		}
+	}
+	body := strings.TrimSpace(strings.Join(out, "\n\n"))
+	if body == "" {
+		return task.Translation{Status: "error", Scope: policy.Scope, Reason: "empty translation"}, fmt.Errorf("translate: empty translation")
+	}
+	return task.Translation{
+		Status:          "translated",
+		SourceLang:      "en",
+		TargetLang:      policy.TargetLanguage,
+		Content:         body,
+		Provider:        "llm",
+		Scope:           policy.Scope,
+		OriginalChars:   originalChars,
+		TranslatedChars: len([]rune(body)),
+		Truncated:       truncated,
+	}, nil
+}
+
 func summaryPrompt(prefs UserPreferences) string {
 	prefs = normalizePreferences(prefs)
 	language := "中文"
@@ -195,6 +256,14 @@ func summaryPrompt(prefs UserPreferences) string {
 		style = "聚焦可执行建议、判断依据和下一步动作。"
 	}
 	return fmt.Sprintf("用%s总结以下内容，控制在%d%s以内。%s", language, prefs.MaxSummaryChars, unit, style)
+}
+
+func translationPrompt(policy TranslationPolicy) string {
+	target := "简体中文"
+	if policy.TargetLanguage == "zh-CN" {
+		target = "简体中文"
+	}
+	return fmt.Sprintf("你是专业资料翻译器。将英文网页或英文资料翻译为%s。保留标题、段落、列表、表格和 Markdown 结构；不要翻译 URL、代码、命令、变量名和产品名；不要添加解释、摘要或免责声明；只输出译文。", target)
 }
 
 func (c *Client) Classify(ctx context.Context, content string) (string, error) {
@@ -277,6 +346,7 @@ func normalizePreferences(prefs UserPreferences) UserPreferences {
 	if prefs.MaxSummaryChars > 1000 {
 		prefs.MaxSummaryChars = 1000
 	}
+	prefs.Translation = normalizeTranslationPolicy(prefs.Translation)
 	cleaned := make([]string, 0, len(prefs.FilterKeywords))
 	for _, keyword := range prefs.FilterKeywords {
 		keyword = strings.TrimSpace(keyword)
@@ -293,6 +363,122 @@ func normalizePreferences(prefs UserPreferences) UserPreferences {
 		prefs.MemoryEnabled = false
 	}
 	return prefs
+}
+
+func normalizeTranslationPolicy(policy TranslationPolicy) TranslationPolicy {
+	switch strings.TrimSpace(strings.ToLower(policy.Mode)) {
+	case "english_only":
+		policy.Mode = "english_only"
+	default:
+		policy.Mode = "english_only"
+	}
+	switch strings.TrimSpace(policy.TargetLanguage) {
+	case "zh-CN":
+		policy.TargetLanguage = "zh-CN"
+	default:
+		policy.TargetLanguage = "zh-CN"
+	}
+	switch strings.TrimSpace(strings.ToLower(policy.Scope)) {
+	case "summary", "knowledge", "summary_knowledge":
+		policy.Scope = strings.TrimSpace(strings.ToLower(policy.Scope))
+	default:
+		policy.Scope = "summary_knowledge"
+	}
+	if policy.MaxChars < 1000 {
+		policy.MaxChars = 8000
+	}
+	if policy.MaxChars > 30000 {
+		policy.MaxChars = 30000
+	}
+	return policy
+}
+
+func looksMostlyEnglish(s string) bool {
+	runes := []rune(s)
+	if len(runes) > 6000 {
+		runes = runes[:6000]
+	}
+	var letters int
+	var latinLetters int
+	var cjkLetters int
+	for _, r := range runes {
+		if unicode.Is(unicode.Han, r) {
+			letters++
+			cjkLetters++
+			continue
+		}
+		if unicode.IsLetter(r) {
+			letters++
+			if unicode.Is(unicode.Latin, r) {
+				latinLetters++
+			}
+		}
+	}
+	if letters < 60 {
+		return false
+	}
+	return latinLetters*100/letters >= 65 && cjkLetters*100/letters <= 15
+}
+
+func splitTranslationChunks(content string, maxRunes int) []string {
+	if maxRunes <= 0 {
+		maxRunes = 3000
+	}
+	paragraphs := strings.Split(strings.TrimSpace(content), "\n\n")
+	chunks := make([]string, 0, len(paragraphs))
+	var current []rune
+	flush := func() {
+		text := strings.TrimSpace(string(current))
+		if text != "" {
+			chunks = append(chunks, text)
+		}
+		current = current[:0]
+	}
+	for _, paragraph := range paragraphs {
+		paragraph = strings.TrimSpace(paragraph)
+		if paragraph == "" {
+			continue
+		}
+		pr := []rune(paragraph)
+		if len(pr) > maxRunes {
+			flush()
+			for start := 0; start < len(pr); start += maxRunes {
+				end := start + maxRunes
+				if end > len(pr) {
+					end = len(pr)
+				}
+				text := strings.TrimSpace(string(pr[start:end]))
+				if text != "" {
+					chunks = append(chunks, text)
+				}
+			}
+			continue
+		}
+		extra := len(pr)
+		if len(current) > 0 {
+			extra += 2
+		}
+		if len(current)+extra > maxRunes {
+			flush()
+		}
+		if len(current) > 0 {
+			current = append(current, '\n', '\n')
+		}
+		current = append(current, pr...)
+	}
+	flush()
+	if chunks == nil {
+		return []string{}
+	}
+	return chunks
+}
+
+func truncateWithFlag(s string, maxRunes int) (string, bool) {
+	runes := []rune(s)
+	if maxRunes <= 0 || len(runes) <= maxRunes {
+		return s, false
+	}
+	return string(runes[:maxRunes]), true
 }
 
 // extractJSON finds the first {...} block in s, handling model preamble text.

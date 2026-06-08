@@ -59,6 +59,45 @@ func TestNormalizeDailyReportKeepsFrequencyChannelsAndFilters(t *testing.T) {
 	}
 }
 
+func TestNormalizeTranslationPolicyUsesSafeDefaults(t *testing.T) {
+	policy := NormalizeTranslationPolicy(TranslationPolicy{
+		Enabled:        true,
+		Mode:           "bad",
+		TargetLanguage: "en",
+		Scope:          "bad",
+		MaxChars:       10,
+	})
+	if !policy.Enabled || policy.Mode != "english_only" || policy.TargetLanguage != "zh-CN" || policy.Scope != "summary_knowledge" || policy.MaxChars != 8000 {
+		t.Fatalf("unexpected translation defaults: %#v", policy)
+	}
+}
+
+func TestArticleChunkTextUsesTranslationForKnowledge(t *testing.T) {
+	metadata := map[string]any{
+		"translation": map[string]any{
+			"scope":   "summary_knowledge",
+			"content": "中文译文",
+		},
+	}
+	_, content := articleChunkText("摘要", "English body", metadata)
+	if content != "中文译文" {
+		t.Fatalf("content = %q, want translated content", content)
+	}
+}
+
+func TestArticleChunkTextKeepsOriginalWhenTranslationIsSummaryOnly(t *testing.T) {
+	metadata := map[string]any{
+		"translation": map[string]any{
+			"scope":   "summary",
+			"content": "中文译文",
+		},
+	}
+	_, content := articleChunkText("摘要", "English body", metadata)
+	if content != "English body" {
+		t.Fatalf("content = %q, want original content", content)
+	}
+}
+
 func TestNormalizeUserSettingsAllowsTelegramOnlyReportWithoutEmail(t *testing.T) {
 	settings := NormalizeUserSettings(UserSettings{
 		Username: "owner",

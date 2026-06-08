@@ -93,6 +93,34 @@ func TestExplicitSourceDecisionForLinuxDoIsSilent(t *testing.T) {
 	}
 }
 
+func TestWebPageTranslationFeedsSummaryAndMetadata(t *testing.T) {
+	st := &fakePipelineStore{}
+	filterer := &fakeFilterer{decision: task.FilterSilent, reason: "save"}
+	summarizer := &fakeTranslatingSummarizer{
+		fakeSummarizer: fakeSummarizer{summary: "摘要"},
+		translation: task.Translation{
+			Status:          "translated",
+			SourceLang:      "en",
+			TargetLang:      "zh-CN",
+			Content:         "中文译文正文",
+			Scope:           "summary_knowledge",
+			TranslatedChars: 6,
+		},
+	}
+	p := NewWebPage(&fakeFetcher{content: "English article body with enough content to translate."}, filterer, summarizer, st, &fakeNotifier{}, nil)
+	item := task.New("task-4", "user-1", task.SourceRSS, task.ContentWebPage, "https://example.com/en", "")
+
+	if err := p.Run(context.Background(), item); err != nil {
+		t.Fatal(err)
+	}
+	if summarizer.lastContent != "中文译文正文" {
+		t.Fatalf("summary content = %q, want translated content", summarizer.lastContent)
+	}
+	if _, ok := item.Metadata()["translation"]; !ok {
+		t.Fatalf("translation metadata missing: %#v", item.Metadata())
+	}
+}
+
 type fakeFetcher struct {
 	content string
 	err     error
@@ -115,14 +143,25 @@ func (f *fakeFilterer) Filter(_ context.Context, _, _ string) (task.FilterDecisi
 }
 
 type fakeSummarizer struct {
-	summary string
-	err     error
-	calls   int
+	summary     string
+	err         error
+	calls       int
+	lastContent string
 }
 
-func (f *fakeSummarizer) Summarize(_ context.Context, _ *task.Task, _ string) (string, error) {
+func (f *fakeSummarizer) Summarize(_ context.Context, _ *task.Task, content string) (string, error) {
 	f.calls++
+	f.lastContent = content
 	return f.summary, f.err
+}
+
+type fakeTranslatingSummarizer struct {
+	fakeSummarizer
+	translation task.Translation
+}
+
+func (f *fakeTranslatingSummarizer) Translate(_ context.Context, _, _ string) (task.Translation, error) {
+	return f.translation, nil
 }
 
 type fakePipelineStore struct {

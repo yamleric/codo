@@ -293,6 +293,14 @@ export interface DailyReportSettings {
   split_by_category: boolean
 }
 
+export interface TranslationSettings {
+  enabled: boolean
+  mode: 'english_only' | string
+  target_language: 'zh-CN' | string
+  scope: 'summary' | 'knowledge' | 'summary_knowledge' | string
+  max_chars: number
+}
+
 export interface UserSettings {
   user_id: string
   username: string
@@ -302,6 +310,7 @@ export interface UserSettings {
   language: SummaryLanguage
   max_summary_chars: number
   filter_keywords: string[]
+  translation: TranslationSettings
   daily_report: DailyReportSettings
   runtime: SettingsRuntime
   runtime_config: RuntimeConfig
@@ -309,7 +318,7 @@ export interface UserSettings {
 
 export type UserSettingsPatch = Partial<Pick<
   UserSettings,
-  'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords' | 'daily_report'
+  'notify_channel' | 'notify_policy' | 'summary_style' | 'language' | 'max_summary_chars' | 'filter_keywords' | 'translation' | 'daily_report'
 >> & {
   runtime_config?: RuntimeConfigPatch
 }

@@ -66,6 +66,11 @@ func (s *Store) AppendStep(ctx context.Context, taskID string, step task.Step) e
 
 func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 	hash := contentHash(t.URL)
+	metadata := t.Metadata()
+	metadataJSON, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal article metadata: %w", err)
+	}
 	tx, err := s.db.Begin(ctx)
 	if err != nil {
 		return err
@@ -75,21 +80,23 @@ func (s *Store) SaveKnowledgeItem(ctx context.Context, t *task.Task) error {
 	var articleID string
 	err = tx.QueryRow(ctx, `
 		INSERT INTO articles (id, user_id, task_id, url, url_hash, source, content_type, content, summary, category, tags, metadata, created_at)
-		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,'{}'::jsonb,NOW())
+		VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12::jsonb,NOW())
 		ON CONFLICT (user_id, url_hash) WHERE url_hash IS NOT NULL DO UPDATE SET
 			summary      = EXCLUDED.summary,
 			content      = EXCLUDED.content,
 			content_type = EXCLUDED.content_type,
 			category     = EXCLUDED.category,
-			tags         = EXCLUDED.tags
+			tags         = EXCLUDED.tags,
+			metadata     = EXCLUDED.metadata
 		RETURNING id`,
 		t.ID, t.UserID, t.ID, t.URL, hash,
-		string(t.Source), string(t.ContentType), t.RawContent(), t.Summary(), t.Category(), t.Tags(),
+		string(t.Source), string(t.ContentType), t.RawContent(), t.Summary(), t.Category(), t.Tags(), string(metadataJSON),
 	).Scan(&articleID)
 	if err != nil {
 		return err
 	}
-	if err := replaceArticleChunks(ctx, tx, t.UserID, articleID, t.Summary(), t.RawContent()); err != nil {
+	chunkSummary, chunkContent := articleChunkText(t.Summary(), t.RawContent(), metadata)
+	if err := replaceArticleChunks(ctx, tx, t.UserID, articleID, chunkSummary, chunkContent); err != nil {
 		return err
 	}
 	return tx.Commit(ctx)
@@ -463,6 +470,45 @@ func BuildArticleChunks(summary, content string) []ArticleChunkInput {
 		start = next
 	}
 	return chunks
+}
+
+func articleChunkText(summary, content string, metadata map[string]any) (string, string) {
+	translation := translationMetadata(metadata)
+	if translation == nil {
+		return summary, content
+	}
+	scope, _ := translation["scope"].(string)
+	if scope != "knowledge" && scope != "summary_knowledge" {
+		return summary, content
+	}
+	translated, _ := translation["content"].(string)
+	translated = strings.TrimSpace(translated)
+	if translated == "" {
+		return summary, content
+	}
+	return summary, translated
+}
+
+func translationMetadata(metadata map[string]any) map[string]any {
+	if len(metadata) == 0 {
+		return nil
+	}
+	value, ok := metadata["translation"]
+	if !ok {
+		return nil
+	}
+	if item, ok := value.(map[string]any); ok {
+		return item
+	}
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return nil
+	}
+	var item map[string]any
+	if err := json.Unmarshal(raw, &item); err != nil {
+		return nil
+	}
+	return item
 }
 
 func replaceArticleChunks(ctx context.Context, tx pgx.Tx, userID, articleID, summary, content string) error {
@@ -1043,10 +1089,19 @@ type UserSettings struct {
 }
 
 type UserModelPolicy struct {
-	SummaryStyle    string `json:"summary_style"`
-	Language        string `json:"language"`
-	MaxSummaryChars int    `json:"max_summary_chars"`
-	NotifyPolicy    string `json:"notify_policy"`
+	SummaryStyle    string            `json:"summary_style"`
+	Language        string            `json:"language"`
+	MaxSummaryChars int               `json:"max_summary_chars"`
+	NotifyPolicy    string            `json:"notify_policy"`
+	Translation     TranslationPolicy `json:"translation"`
+}
+
+type TranslationPolicy struct {
+	Enabled        bool   `json:"enabled"`
+	Mode           string `json:"mode"`
+	TargetLanguage string `json:"target_language"`
+	Scope          string `json:"scope"`
+	MaxChars       int    `json:"max_chars"`
 }
 
 type DailyReport struct {
@@ -1069,6 +1124,17 @@ func DefaultUserModelPolicy() UserModelPolicy {
 		Language:        "zh-CN",
 		MaxSummaryChars: 300,
 		NotifyPolicy:    "pass_only",
+		Translation:     DefaultTranslationPolicy(),
+	}
+}
+
+func DefaultTranslationPolicy() TranslationPolicy {
+	return TranslationPolicy{
+		Enabled:        false,
+		Mode:           "english_only",
+		TargetLanguage: "zh-CN",
+		Scope:          "summary_knowledge",
+		MaxChars:       8000,
 	}
 }
 
@@ -1128,6 +1194,36 @@ func NormalizeUserModelPolicy(policy UserModelPolicy) UserModelPolicy {
 	case "pass_only", "save_only":
 	default:
 		policy.NotifyPolicy = defaults.NotifyPolicy
+	}
+	policy.Translation = NormalizeTranslationPolicy(policy.Translation)
+	return policy
+}
+
+func NormalizeTranslationPolicy(policy TranslationPolicy) TranslationPolicy {
+	defaults := DefaultTranslationPolicy()
+	switch strings.TrimSpace(strings.ToLower(policy.Mode)) {
+	case "english_only":
+		policy.Mode = "english_only"
+	default:
+		policy.Mode = defaults.Mode
+	}
+	switch strings.TrimSpace(policy.TargetLanguage) {
+	case "zh-CN":
+		policy.TargetLanguage = "zh-CN"
+	default:
+		policy.TargetLanguage = defaults.TargetLanguage
+	}
+	switch strings.TrimSpace(strings.ToLower(policy.Scope)) {
+	case "summary", "knowledge", "summary_knowledge":
+		policy.Scope = strings.TrimSpace(strings.ToLower(policy.Scope))
+	default:
+		policy.Scope = defaults.Scope
+	}
+	if policy.MaxChars < 1000 {
+		policy.MaxChars = defaults.MaxChars
+	}
+	if policy.MaxChars > 30000 {
+		policy.MaxChars = 30000
 	}
 	return policy
 }
@@ -1268,6 +1364,7 @@ func (s *Store) UpdateUserSettings(ctx context.Context, settings UserSettings) e
 		"language":          settings.ModelPolicy.Language,
 		"max_summary_chars": settings.ModelPolicy.MaxSummaryChars,
 		"notify_policy":     settings.ModelPolicy.NotifyPolicy,
+		"translation":       settings.ModelPolicy.Translation,
 		"daily_report":      settings.DailyReport,
 	}
 	policyJSON, err := json.Marshal(policyPayload)
@@ -1373,10 +1470,17 @@ func (s *Store) GetLLMPreferences(ctx context.Context, userID string) (llm.UserP
 		preferenceMemory = ""
 	}
 	return llm.UserPreferences{
-		FilterKeywords:   settings.FilterKeywords,
-		SummaryStyle:     settings.ModelPolicy.SummaryStyle,
-		Language:         settings.ModelPolicy.Language,
-		MaxSummaryChars:  settings.ModelPolicy.MaxSummaryChars,
+		FilterKeywords:  settings.FilterKeywords,
+		SummaryStyle:    settings.ModelPolicy.SummaryStyle,
+		Language:        settings.ModelPolicy.Language,
+		MaxSummaryChars: settings.ModelPolicy.MaxSummaryChars,
+		Translation: llm.TranslationPolicy{
+			Enabled:        settings.ModelPolicy.Translation.Enabled,
+			Mode:           settings.ModelPolicy.Translation.Mode,
+			TargetLanguage: settings.ModelPolicy.Translation.TargetLanguage,
+			Scope:          settings.ModelPolicy.Translation.Scope,
+			MaxChars:       settings.ModelPolicy.Translation.MaxChars,
+		},
 		MemoryEnabled:    memoryEnabled,
 		PreferenceMemory: preferenceMemory,
 	}, nil
