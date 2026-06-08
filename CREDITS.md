@@ -1,120 +1,171 @@
-# 致谢 / Credits
+# 致谢与开源参考目录
 
-Codo 是一个开源非盈利项目，在开发过程中参考和借鉴了以下优秀的开源项目。感谢这些项目的作者和贡献者。
+Codo 是一个开源非盈利项目。开发过程中参考了许多优秀开源项目的架构、产品组织和实现方式，也直接使用了一批开源依赖。感谢这些项目的作者和贡献者。
 
----
+本文件是项目统一的“致谢、依赖、参考项目”目录。
 
-## 架构参考
-
-<table border="1" cellpadding="8" cellspacing="0">
-  <tr><th>项目</th><th>仓库</th><th>参考内容</th></tr>
-  <tr><td>DEEIX-Chat</td><td>—</td><td>分层架构（domain / application / infra / transport）、模型路由设计、配置分离思路</td></tr>
-  <tr><td>LangGraph</td><td><a href="https://github.com/langchain-ai/langgraph">langchain-ai/langgraph</a></td><td>确定性工作流 + 状态持久化思路</td></tr>
-  <tr><td>OpenAI Agents SDK</td><td><a href="https://github.com/openai/openai-agents-python">openai/openai-agents-python</a></td><td>最小 Agent 抽象：instructions + tools + guardrails</td></tr>
-  <tr><td>OpenClaw</td><td><a href="https://github.com/openclaw/openclaw">openclaw/openclaw</a></td><td>多渠道消息接入架构、节点系统设计</td></tr>
-  <tr><td>Hermes Agent</td><td><a href="https://github.com/NousResearch/hermes-agent">NousResearch/hermes-agent</a></td><td>技能沉淀系统、持久记忆设计</td></tr>
-</table>
+- **已接入依赖**：Codo 运行或构建时实际使用的库、工具或镜像。
+- **参考项目**：没有复制源码、没有作为运行依赖引入，但在设计和实现方案上参考过。
+- **候选依赖**：未来可能引入的项目，不代表当前已经使用。
 
 ---
 
-## 专项实现参考
+## 目录
 
-<table border="1" cellpadding="8" cellspacing="0">
-  <tr><th>项目</th><th>许可证</th><th>参考内容</th><th>接入方式</th></tr>
-  <tr>
-    <td><a href="https://github.com/huanjuedadehen/wechat-article-parser">wechat-article-parser</a></td>
-    <td>MIT</td>
-    <td>微信公众号文章类型识别、验证页检测、元数据与多种正文容器提取策略</td>
-    <td>作为实现参考；Codo 使用 Go + goquery 独立实现，不引入 Python 运行时</td>
-  </tr>
-  <tr>
-    <td><a href="https://github.com/LuckyTain/SuperStarInfoFetch">SuperStarInfoFetch</a></td>
-    <td>GPL-3.0</td>
-    <td>学习通课程、作业、考试字段抽象，以及剩余时间 / 有效性过滤思路</td>
-    <td>仅作为实现参考；Codo 未复制源码，未作为依赖引入</td>
-  </tr>
-  <tr>
-    <td><a href="https://github.com/songhahaha66/chaoxing_qq_notification">chaoxing_qq_notification</a></td>
-    <td>未明确标注</td>
-    <td>学习通作业入库、状态更新、临近截止提醒和前后端分离流程</td>
-    <td>仅作为产品流程参考；Codo 使用 Go + PostgreSQL 独立实现</td>
-  </tr>
-  <tr>
-    <td><a href="https://github.com/Gngzs/xxt-unwork-push">xxt-unwork-push</a></td>
-    <td>未明确标注</td>
-    <td>每日未完成作业汇总和 24 小时内截止提醒策略</td>
-    <td>仅作为提醒策略参考；不引入代码</td>
-  </tr>
-  <tr>
-    <td><a href="https://github.com/xsk666/xxt_work_notice">xxt_work_notice</a></td>
-    <td>README 标注禁止商业使用</td>
-    <td>学习通作业、考试列表接口和最小提醒脚本结构</td>
-    <td>仅作为接口形态参考；不引入代码</td>
-  </tr>
-</table>
+- [已接入的开源依赖](#已接入的开源依赖)
+- [架构与 Agent 参考](#架构与-agent-参考)
+- [订阅源与内容入口参考](#订阅源与内容入口参考)
+- [收藏、阅读和知识管理参考](#收藏阅读和知识管理参考)
+- [学习通作业考试提醒参考](#学习通作业考试提醒参考)
+- [视频抓取和授权态参考](#视频抓取和授权态参考)
+- [邮件助理参考](#邮件助理参考)
+- [偏好记忆和个人知识库参考](#偏好记忆和个人知识库参考)
+- [英文资料翻译参考](#英文资料翻译参考)
+- [候选开源依赖](#候选开源依赖)
 
 ---
 
 ## 已接入的开源依赖
 
-<table border="1" cellpadding="8" cellspacing="0">
-  <tr><th>模块</th><th>项目 / 仓库</th><th>当前用途</th></tr>
-  <tr><td>通知</td><td><a href="https://github.com/go-telegram-bot-api/telegram-bot-api">go-telegram-bot-api/telegram-bot-api</a></td><td>Telegram 消息推送</td></tr>
-  <tr><td>订阅源</td><td><a href="https://github.com/mmcdole/gofeed">mmcdole/gofeed</a></td><td>RSS / Atom / JSON Feed 统一解析</td></tr>
-  <tr><td>网页抓取</td><td><a href="https://codeberg.org/readeck/go-readability">readeck/go-readability</a></td><td>网页正文提取</td></tr>
-  <tr><td>浏览器抓取</td><td><a href="https://github.com/playwright-community/playwright-go">playwright-community/playwright-go</a></td><td>知乎等 JS 渲染页面的浏览器自动化抓取</td></tr>
-  <tr><td>安全清洗</td><td><a href="https://github.com/microcosm-cc/bluemonday">microcosm-cc/bluemonday</a></td><td>HTML 安全清洗，入库 / 展示前 sanitize</td></tr>
-  <tr><td>网页解析</td><td><a href="https://github.com/PuerkitoBio/goquery">PuerkitoBio/goquery</a></td><td>HTML 选择器解析；当前用于微信公众号专用正文提取和学习通作业 / 考试列表解析</td></tr>
-  <tr><td>视频内容</td><td><a href="https://github.com/yt-dlp/yt-dlp">yt-dlp/yt-dlp</a></td><td>B站 / 抖音公开视频元数据、字幕和音频下载；cookies 文件和浏览器 cookies 来源配置</td></tr>
-  <tr><td>视频授权态参考</td><td><a href="https://github.com/mikf/gallery-dl">gallery-dl/gallery-dl</a></td><td>参考其显式 cookies / browser cookies 配置模式，不作为运行依赖</td></tr>
-  <tr><td>音频处理</td><td><a href="https://github.com/FFmpeg/FFmpeg">FFmpeg/FFmpeg</a></td><td>视频音频提取、转码和 ASR 切片</td></tr>
-  <tr><td>数据存储</td><td><a href="https://github.com/jackc/pgx">jackc/pgx</a></td><td>PostgreSQL 驱动与连接池</td></tr>
-  <tr><td>知识库</td><td><a href="https://github.com/pgvector/pgvector">pgvector/pgvector</a></td><td>PostgreSQL 向量字段和向量索引</td></tr>
-  <tr><td>去重</td><td><a href="https://github.com/cespare/xxhash">cespare/xxhash</a></td><td>URL / 内容 hash，用于快速去重</td></tr>
-  <tr><td>实时看板</td><td><a href="https://github.com/gorilla/websocket">gorilla/websocket</a></td><td>任务状态 WebSocket 推送</td></tr>
-  <tr><td>前端</td><td><a href="https://github.com/vuejs/core">vuejs/core</a></td><td>Web 看板 UI 框架</td></tr>
-  <tr><td>前端构建</td><td><a href="https://github.com/vitejs/vite">vitejs/vite</a></td><td>前端开发服务器与生产构建</td></tr>
-  <tr><td>前端样式</td><td><a href="https://github.com/tailwindlabs/tailwindcss">tailwindlabs/tailwindcss</a></td><td>看板样式系统</td></tr>
-  <tr><td>前端请求</td><td><a href="https://github.com/axios/axios">axios/axios</a></td><td>浏览器端 HTTP API 调用</td></tr>
-</table>
+| 模块 | 项目 / 仓库 | 当前用途 |
+| --- | --- | --- |
+| 通知 | [go-telegram-bot-api/telegram-bot-api](https://github.com/go-telegram-bot-api/telegram-bot-api) | Telegram 消息推送 |
+| RSS | [mmcdole/gofeed](https://github.com/mmcdole/gofeed) | RSS / Atom / JSON Feed 解析 |
+| 网页正文 | [readeck/go-readability](https://codeberg.org/readeck/go-readability) | 普通网页正文提取 |
+| HTML 解析 | [PuerkitoBio/goquery](https://github.com/PuerkitoBio/goquery) | HTML 选择器解析；用于网页、学习通、部分来源页面解析 |
+| HTML 清洗 | [microcosm-cc/bluemonday](https://github.com/microcosm-cc/bluemonday) | HTML 内容安全清洗 |
+| 浏览器渲染 | [playwright-community/playwright-go](https://github.com/playwright-community/playwright-go) | 部分 JS 渲染页面的浏览器自动化抓取；当前不代表支持知乎 |
+| 视频获取 | [yt-dlp/yt-dlp](https://github.com/yt-dlp/yt-dlp) | B站 / 抖音公开视频元数据、字幕和音频获取 |
+| 音频处理 | [FFmpeg/FFmpeg](https://github.com/FFmpeg/FFmpeg) | 视频音频提取、转码和 ASR 前处理 |
+| 邮件读取 | [emersion/go-imap](https://github.com/emersion/go-imap) | IMAP 只读同步收件箱 |
+| 邮件解析 | [emersion/go-message](https://github.com/emersion/go-message) | MIME 邮件正文解析 |
+| PostgreSQL | [jackc/pgx](https://github.com/jackc/pgx) | PostgreSQL 驱动与连接池 |
+| 向量检索 | [pgvector/pgvector](https://github.com/pgvector/pgvector) | PostgreSQL 向量字段和相似度检索 |
+| 去重 | [cespare/xxhash](https://github.com/cespare/xxhash) | URL hash，用于快速去重 |
+| 实时看板 | [gorilla/websocket](https://github.com/gorilla/websocket) | 任务状态 WebSocket 推送 |
+| 前端框架 | [vuejs/core](https://github.com/vuejs/core) | Web 工作台 UI |
+| 前端构建 | [vitejs/vite](https://github.com/vitejs/vite) | 前端开发服务器和生产构建 |
+| 前端样式 | [tailwindlabs/tailwindcss](https://github.com/tailwindlabs/tailwindcss) | 工作台样式系统 |
+| 前端请求 | [axios/axios](https://github.com/axios/axios) | 浏览器端 HTTP API 调用 |
+| 前端图标 | [lucide-icons/lucide](https://github.com/lucide-icons/lucide) | 工作台图标 |
+
+---
+
+## 架构与 Agent 参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [LangGraph](https://github.com/langchain-ai/langgraph) | 确定性工作流、状态持久化、节点编排思路 | 参考架构，不作为运行依赖 |
+| [OpenAI Agents SDK](https://github.com/openai/openai-agents-python) | Agent 抽象、工具调用、guardrails 组织方式 | 参考抽象，不作为运行依赖 |
+| [OpenClaw](https://github.com/openclaw/openclaw) | 多渠道消息接入和节点系统思路 | 参考产品架构，不作为运行依赖 |
+| [Hermes Agent](https://github.com/NousResearch/hermes-agent) | 技能沉淀、工具调用和持久记忆思路 | 参考设计，不作为运行依赖 |
+
+---
+
+## 订阅源与内容入口参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [RSSHub](https://github.com/DIYgod/RSSHub) | 把网站、公众号、社区内容转换成 RSS 的模式 | 推荐作为外部 RSS 来源，不内嵌 |
+| [Miniflux](https://github.com/miniflux/v2) | feed 分类、禁用、健康状态、OPML 思路 | 参考订阅源管理 |
+| [FreshRSS](https://github.com/FreshRSS/FreshRSS) | RSS 阅读器的分类、源管理和阅读状态组织 | 参考产品组织 |
+| [NetNewsWire](https://github.com/Ranchero-Software/NetNewsWire) | folders、订阅列表和阅读体验 | 参考交互组织 |
+| [Tiny Tiny RSS](https://git.tt-rss.org/fox/tt-rss) | categories、labels、过滤规则 | 参考后续订阅规则设计 |
+
+---
+
+## 收藏、阅读和知识管理参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [Linkwarden](https://github.com/linkwarden/linkwarden) | 书签管理、标签、集合和可视化列表 | 参考收藏夹和展示页，不作为运行依赖 |
+| [Karakeep](https://github.com/karakeep-app/karakeep) | 个人信息收藏、AI 摘要、搜索和标签组织 | 参考产品形态，不作为运行依赖 |
+| [wallabag](https://github.com/wallabag/wallabag) | 稍后读、文章保存和阅读视图 | 参考阅读体验，不作为运行依赖 |
+| [Readeck](https://codeberg.org/readeck/readeck) | 个人网页归档、正文抽取和阅读管理 | 参考知识库内容展示；Codo 仅接入其 Go readability 库 |
+
+---
+
+## 学习通作业考试提醒参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [LuckyTain/SuperStarInfoFetch](https://github.com/LuckyTain/SuperStarInfoFetch) | 学习通课程、作业、考试字段抽象，以及剩余时间 / 有效性过滤思路 | 仅作实现参考，不复制源码 |
+| [songhahaha66/chaoxing_qq_notification](https://github.com/songhahaha66/chaoxing_qq_notification) | 作业入库、状态更新、临近截止提醒和前后端分离流程 | 仅作流程参考 |
+| [Gngzs/xxt-unwork-push](https://github.com/Gngzs/xxt-unwork-push) | 每日未完成作业汇总和 24 小时内截止提醒策略 | 仅作提醒策略参考 |
+| [xsk666/xxt_work_notice](https://github.com/xsk666/xxt_work_notice) | 作业 / 考试列表接口和最小提醒脚本结构 | 仅作接口形态参考 |
+| [Marshmellond/XuexitongJob](https://github.com/Marshmellond/XuexitongJob) | 学习通每日作业提醒和邮件通知思路 | 仅作通知流程参考 |
+
+---
+
+## 视频抓取和授权态参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [yt-dlp](https://github.com/yt-dlp/yt-dlp) | 多平台视频元数据、字幕、音频获取 | 已作为运行工具接入 |
+| [gallery-dl](https://github.com/mikf/gallery-dl) | 显式 cookies 文件和 browser cookies 来源配置模式 | 仅作授权态配置参考 |
+| [FFmpeg](https://github.com/FFmpeg/FFmpeg) | 音频提取、转码、切片 | 已作为运行工具接入 |
+
+---
+
+## 邮件助理参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [emersion/go-imap](https://github.com/emersion/go-imap) | IMAP 只读同步收件箱 | 已作为依赖接入 |
+| [emersion/go-message](https://github.com/emersion/go-message) | MIME 邮件解析、纯文本 / HTML 正文提取 | 已作为依赖接入 |
+| [jhillyerd/enmime](https://github.com/jhillyerd/enmime) | 邮件 MIME 解析和附件处理 API 设计 | 仅作备选参考 |
+
+---
+
+## 偏好记忆和个人知识库参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [Dify](https://github.com/langgenius/dify) | 反馈、标注日志和应用配置组织 | 参考产品机制，不作为运行依赖 |
+| [Open WebUI](https://github.com/open-webui/open-webui) | 可见、可编辑、可删除的用户记忆 | 参考记忆管理体验 |
+| [LangMem](https://github.com/langchain-ai/langmem) | semantic / episodic / procedural memory 拆分 | 参考记忆类型抽象 |
+| [Mem0](https://github.com/mem0ai/mem0) | 长期记忆抽象和记忆更新流程 | 参考记忆服务设计 |
+| [Khoj](https://github.com/khoj-ai/khoj) | 个人知识库、检索和问答体验 | 参考知识问答产品 |
+| [Letta](https://github.com/letta-ai/letta) | 长期记忆 Agent 和工具使用 | 参考 Agent 记忆设计 |
+| [Graphiti](https://github.com/getzep/graphiti) | 时序知识图谱和记忆演化 | 参考后续记忆演化方向 |
+
+---
+
+## 英文资料翻译参考
+
+| 项目 | 参考内容 | 接入方式 |
+| --- | --- | --- |
+| [Zotero PDF Translate](https://github.com/windingwind/zotero-pdf-translate) | 文献阅读场景下的段落翻译、双语资料管理 | 参考产品体验 |
+| [LibreTranslate](https://github.com/LibreTranslate/LibreTranslate) | 自部署翻译服务 API 形态 | 未来可作为可选翻译后端 |
+| [Argos Translate](https://github.com/argosopentech/argos-translate) | 本地离线翻译模型和包管理 | 未来可作为离线翻译参考 |
+| [PDFMathTranslate](https://github.com/Byaidu/PDFMathTranslate) | 保留文档结构的翻译处理 | 参考长文档翻译方向 |
 
 ---
 
 ## 候选开源依赖
 
-> 下面是按模块推荐的可选依赖，不代表当前已经接入。真正引入前应确认许可证、维护状态、部署成本和是否能被现有接口隔离。
+> 下面项目不代表当前已经接入。真正引入前需要确认许可证、维护状态、部署成本和是否能被现有接口隔离。
 
-<table border="1" cellpadding="8" cellspacing="0">
-  <tr><th>模块</th><th>候选项目</th><th>适用场景</th><th>引入建议</th></tr>
-  <tr><td>LLM SDK</td><td><a href="https://github.com/openai/openai-go">openai/openai-go</a></td><td>替代当前手写 HTTP 请求，统一调用 OpenAI-compatible 接口</td><td>优先接入到 infra/llm，保留 BaseURL 配置</td></tr>
-  <tr><td>LLM SDK</td><td><a href="https://github.com/anthropics/anthropic-sdk-go">anthropic-sdk-go</a></td><td>直连 Claude API，使用 Anthropic 原生能力</td><td>仅在不走 OpenAI-compatible 中转站时引入</td></tr>
-  <tr><td>任务队列</td><td><a href="https://github.com/riverqueue/river">riverqueue/river</a></td><td>Postgres 事务内入队，任务状态与业务数据保持一致</td><td>若继续以 Postgres 为主存储，优先考虑</td></tr>
-  <tr><td>任务队列</td><td><a href="https://github.com/hibiken/asynq">hibiken/asynq</a></td><td>Redis 后台任务队列、重试、延迟任务</td><td>若确定 Redis 是核心队列，再考虑</td></tr>
-  <tr><td>定时任务</td><td><a href="https://github.com/robfig/cron">robfig/cron</a></td><td>替代固定 ticker，管理 RSS 拉取、日报、提醒等 cron 任务</td><td>适合轻量 scheduler</td></tr>
-  <tr><td>浏览器抓取</td><td><a href="https://github.com/playwright-community/playwright-go">playwright-go</a></td><td>JS 渲染、登录态页面、滚动懒加载</td><td>功能完整但镜像更重，适合独立 fetcher 服务</td></tr>
-  <tr><td>浏览器抓取</td><td><a href="https://github.com/chromedp/chromedp">chromedp/chromedp</a></td><td>基于 Chrome DevTools Protocol 的 Go 原生自动化</td><td>比 Playwright 轻，复杂站点兼容性需验证</td></tr>
-  <tr><td>爬虫框架</td><td><a href="https://github.com/gocolly/colly">gocolly/colly</a></td><td>规则化抓取网站列表页、分页、详情页</td><td>适合 linux.do 等结构化 source 插件</td></tr>
-  <tr><td>反爬兜底</td><td><a href="https://github.com/FlareSolverr/FlareSolverr">FlareSolverr/FlareSolverr</a></td><td>Cloudflare 防护页面兜底抓取</td><td>作为外部服务接入，不建议作为默认路径</td></tr>
-  <tr><td>本地 ASR</td><td><a href="https://github.com/SYSTRAN/faster-whisper">SYSTRAN/faster-whisper</a></td><td>不走外部 ASR API 时，在独立 video-fetcher 服务内本地转写音频</td><td>需要模型文件和较重运行时，适合后续 sidecar 化</td></tr>
-  <tr><td>订阅源</td><td><a href="https://github.com/DIYgod/RSSHub">DIYgod/RSSHub</a></td><td>把网站、公众号、社区内容转换成 RSS</td><td>建议作为外部 source，而不是耦合进主服务</td></tr>
-  <tr><td>邮件</td><td><a href="https://github.com/emersion/go-imap">emersion/go-imap</a></td><td>IMAP 邮件拉取</td><td>接入 EmailPipeline 前再引入</td></tr>
-  <tr><td>邮件</td><td><a href="https://github.com/jhillyerd/enmime">jhillyerd/enmime</a></td><td>邮件 MIME 解析、正文和附件提取</td><td>与 IMAP source 配套使用</td></tr>
-  <tr><td>URL 提取</td><td><a href="https://github.com/mvdan/xurls">mvdan/xurls</a></td><td>从消息、邮件、纯文本中提取 URL</td><td>适合 Telegram Bot 输入和群消息处理</td></tr>
-  <tr><td>配置</td><td><a href="https://github.com/caarlos0/env">caarlos0/env</a></td><td>把环境变量解析到结构体</td><td>比散落 getenv 更适合后续配置增长</td></tr>
-  <tr><td>迁移</td><td><a href="https://github.com/golang-migrate/migrate">golang-migrate/migrate</a></td><td>数据库 schema 版本化迁移</td><td>替代单个 init.sql，适合生产部署</td></tr>
-  <tr><td>向量存储</td><td><a href="https://github.com/pgvector/pgvector-go">pgvector/pgvector-go</a></td><td>Go 侧读写 pgvector 类型</td><td>接入 embedding 写入时使用</td></tr>
-  <tr><td>可观测性</td><td><a href="https://github.com/open-telemetry/opentelemetry-go">open-telemetry/opentelemetry-go</a></td><td>HTTP、DB、LLM 调用链路追踪</td><td>先从 model_calls 表做轻量 trace，再按需接入</td></tr>
-  <tr><td>指标</td><td><a href="https://github.com/prometheus/client_golang">prometheus/client_golang</a></td><td>任务量、失败率、LLM 延迟、token 用量指标</td><td>适合需要监控面板时引入</td></tr>
-  <tr><td>测试</td><td><a href="https://github.com/stretchr/testify">stretchr/testify</a></td><td>单元测试断言和 mock 辅助</td><td>适合补 pipeline/store 测试</td></tr>
-  <tr><td>集成测试</td><td><a href="https://github.com/testcontainers/testcontainers-go">testcontainers/testcontainers-go</a></td><td>测试中启动 Postgres、Redis 等依赖</td><td>适合验证存储、队列、迁移</td></tr>
-  <tr><td>前端组件</td><td><a href="https://github.com/radix-vue/reka-ui">radix-vue/reka-ui</a></td><td>Vue 无样式可访问组件，适合菜单、弹窗、选择器</td><td>等看板控件复杂后再引入</td></tr>
-  <tr><td>前端图标</td><td><a href="https://github.com/lucide-icons/lucide">lucide-icons/lucide</a></td><td>统一图标库</td><td>适合任务状态、操作按钮、来源类型图标</td></tr>
-</table>
+| 模块 | 候选项目 | 适用场景 | 引入建议 |
+| --- | --- | --- | --- |
+| LLM SDK | [openai/openai-go](https://github.com/openai/openai-go) | 替代当前手写 HTTP 请求，统一调用 OpenAI-compatible 接口 | 可接入到 `internal/infra/llm`，保留 BaseURL 配置 |
+| 任务队列 | [riverqueue/river](https://github.com/riverqueue/river) | Postgres 事务内入队，任务状态与业务数据保持一致 | 若继续以 Postgres 为主存储，优先考虑 |
+| 任务队列 | [hibiken/asynq](https://github.com/hibiken/asynq) | Redis 后台任务队列、重试、延迟任务 | 若确定 Redis 是核心队列，再考虑 |
+| 定时任务 | [robfig/cron](https://github.com/robfig/cron) | 替代固定 ticker，管理 RSS 拉取、日报、提醒等 cron 任务 | 适合轻量 scheduler |
+| 浏览器抓取 | [chromedp/chromedp](https://github.com/chromedp/chromedp) | 基于 Chrome DevTools Protocol 的 Go 原生自动化 | 比 Playwright 轻，复杂站点兼容性需验证 |
+| 爬虫框架 | [gocolly/colly](https://github.com/gocolly/colly) | 规则化抓取网站列表页、分页、详情页 | 适合结构化 source 插件 |
+| 反爬兜底 | [FlareSolverr](https://github.com/FlareSolverr/FlareSolverr) | Cloudflare 防护页面兜底抓取 | 作为外部服务接入，不建议作为默认路径 |
+| 本地 ASR | [SYSTRAN/faster-whisper](https://github.com/SYSTRAN/faster-whisper) | 不走外部 ASR API 时本地转写音频 | 需要模型文件和较重运行时，适合 sidecar 化 |
+| URL 提取 | [mvdan/xurls](https://github.com/mvdan/xurls) | 从消息、邮件、纯文本中提取 URL | 适合后续聊天入口和群消息处理 |
+| 配置 | [caarlos0/env](https://github.com/caarlos0/env) | 把环境变量解析到结构体 | 比散落 getenv 更适合后续配置增长 |
+| 迁移 | [golang-migrate/migrate](https://github.com/golang-migrate/migrate) | 数据库 schema 版本化迁移 | 适合生产部署演进 |
+| 测试 | [stretchr/testify](https://github.com/stretchr/testify) | 单元测试断言和 mock 辅助 | 适合补 pipeline/store 测试 |
+| 集成测试 | [testcontainers-go](https://github.com/testcontainers/testcontainers-go) | 测试中启动 Postgres 等依赖 | 适合验证存储、迁移和端到端流程 |
 
 ---
 
 ## 致谢说明
 
-本项目遵循各依赖库的开源协议。如有遗漏或信息有误，欢迎提交 Issue 或 PR 更正。
+Codo 尊重各依赖库和参考项目的原始许可证。本项目没有复制参考项目源码；如有遗漏、链接错误或授权信息不准确，欢迎提交 Issue 或 PR 更正。
 
 > This project is non-commercial and open source. All referenced projects retain their original licenses.

@@ -299,11 +299,13 @@ http://服务器IP:8090
 
 ---
 
-## 开源参考与依赖
+## 致谢与参考
 
-邮件助理采用通用开源邮箱工具常见的实现路径：IMAP 只读同步收件箱，MIME 解析正文，AI 做重要性判断和摘要，重要邮件走即时通知，普通邮件进入每日总结和知识库。
+完整目录见 [CREDITS.md](CREDITS.md)。
 
-- [emersion/go-imap](https://github.com/emersion/go-imap)：IMAP 客户端，用于只读连接邮箱和拉取邮件。
-- [emersion/go-message](https://github.com/emersion/go-message)：MIME 邮件解析，用于提取纯文本/HTML 正文并跳过附件。
+这个目录集中记录两类内容：
 
-偏好记忆参考了个人 AI 与知识管理项目的常见设计：Dify 的反馈与标注日志、Open WebUI 的可见/可删用户记忆、LangMem 的 semantic / episodic / procedural memory 拆分、Mem0 的长期记忆抽象，以及 Khoj / Letta / Graphiti 在个人知识与时序记忆上的思路。Codo 当前没有引入这些项目作为运行依赖，而是实现轻量版：显式反馈入库，生成用户可编辑的记忆画像，再注入内容过滤提示词。
+- **已接入依赖**：项目实际使用的 Go / Node / Docker 依赖，例如 gofeed、go-imap、go-message、Playwright、yt-dlp、FFmpeg、pgvector、Vue、Vite 等。
+- **参考过的开源项目**：没有复制源码、没有作为运行依赖引入，但在架构、产品组织、订阅源管理、学习通提醒、收藏管理、偏好记忆、翻译方案等设计上参考过的项目。
+
+如有遗漏或授权信息不准确，优先更新 [CREDITS.md](CREDITS.md)。
