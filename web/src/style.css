@@ -1588,20 +1588,23 @@ select:focus-visible {
   gap: 7px;
 }
 
-.knowledge-citations a {
+.knowledge-citations button {
   display: grid;
   min-width: 0;
   grid-template-columns: auto minmax(0, 1fr);
   gap: 2px 6px;
   padding: 8px;
   color: inherit;
+  font: inherit;
+  text-align: left;
   text-decoration: none;
   background: #f7f9f6;
   border: 1px solid var(--line);
   border-radius: 5px;
+  cursor: pointer;
 }
 
-.knowledge-citations a:hover {
+.knowledge-citations button:hover {
   border-color: #9ebdb4;
 }
 

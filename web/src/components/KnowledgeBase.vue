@@ -87,17 +87,16 @@
         </header>
         <p>{{ qa.answer }}</p>
         <div v-if="qa.citations.length" class="knowledge-citations">
-          <a
+          <button
             v-for="citation in qa.citations"
             :key="citation.chunk_id"
-            :href="citation.url || undefined"
-            :target="citation.url ? '_blank' : undefined"
-            rel="noreferrer"
+            type="button"
+            @click="openArticle(citation.article_id, 'content')"
           >
             <span>[{{ citation.index }}]</span>
             <strong>{{ citationTitle(citation) }}</strong>
             <small>{{ citation.category || sourceLabel(citation.source) }}</small>
-          </a>
+          </button>
         </div>
       </article>
     </section>

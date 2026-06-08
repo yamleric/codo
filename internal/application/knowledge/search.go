@@ -61,6 +61,7 @@ type SearchResult struct {
 	Category    string    `json:"category"`
 	Tags        []string  `json:"tags"`
 	Snippet     string    `json:"snippet"`
+	Context     string    `json:"-"`
 	Score       float64   `json:"score"`
 	Match       string    `json:"match"`
 	CreatedAt   time.Time `json:"created_at"`
@@ -84,6 +85,7 @@ type Citation struct {
 	Category    string   `json:"category"`
 	Tags        []string `json:"tags"`
 	Snippet     string   `json:"snippet"`
+	Context     string   `json:"-"`
 }
 
 type BackfillResult struct {
@@ -105,7 +107,7 @@ func (s *Service) Search(ctx context.Context, userID, query string, limit int) (
 		return response, nil
 	}
 
-	keywordRows, err := s.store.SearchArticleChunksKeyword(ctx, userID, query, limit*2)
+	keywordRows, err := s.searchKeywordRows(ctx, userID, query, limit*2)
 	if err != nil {
 		return response, err
 	}
@@ -125,6 +127,30 @@ func (s *Service) Search(ctx context.Context, userID, query string, limit int) (
 	}
 	response.Results = mergeRows(query, keywordRows, vectorRows, limit)
 	return response, nil
+}
+
+func (s *Service) searchKeywordRows(ctx context.Context, userID, query string, limit int) ([]store.SearchChunkRow, error) {
+	queries := retrievalQueries(query)
+	if len(queries) == 0 {
+		return []store.SearchChunkRow{}, nil
+	}
+
+	var combined []store.SearchChunkRow
+	for index, candidate := range queries {
+		rows, err := s.store.SearchArticleChunksKeyword(ctx, userID, candidate, limit)
+		if err != nil {
+			return nil, err
+		}
+		weight := retrievalQueryWeight(index)
+		for _, row := range rows {
+			row.Score *= weight
+			combined = append(combined, row)
+		}
+	}
+	if combined == nil {
+		return []store.SearchChunkRow{}, nil
+	}
+	return combined, nil
 }
 
 func (s *Service) Answer(ctx context.Context, userID, question string) (QAResponse, error) {
@@ -250,6 +276,7 @@ func mergeRows(query string, keywordRows, vectorRows []store.SearchChunkRow, lim
 			Category:    item.row.Category,
 			Tags:        item.row.Tags,
 			Snippet:     snippet(item.row.Content, query, 260),
+			Context:     truncateRunes(strings.TrimSpace(item.row.Content), 1600),
 			Score:       item.score,
 			Match:       matchLabel(item.matchKeyword, item.matchVector),
 			CreatedAt:   item.row.CreatedAt,
@@ -278,6 +305,7 @@ func citationsFromResults(results []SearchResult, limit int) []Citation {
 			Category:    result.Category,
 			Tags:        result.Tags,
 			Snippet:     result.Snippet,
+			Context:     result.Context,
 		})
 	}
 	if citations == nil {
@@ -316,9 +344,125 @@ func qaUserPrompt(question string, citations []Citation) string {
 		if citation.URL != "" {
 			fmt.Fprintf(&b, "链接：%s\n", citation.URL)
 		}
-		fmt.Fprintf(&b, "片段：%s\n", truncateRunes(citation.Snippet, 900))
+		context := strings.TrimSpace(citation.Context)
+		if context == "" {
+			context = citation.Snippet
+		}
+		fmt.Fprintf(&b, "片段：%s\n", truncateRunes(context, 1200))
 	}
 	return b.String()
+}
+
+func retrievalQueries(query string) []string {
+	original := strings.TrimSpace(query)
+	if original == "" {
+		return []string{}
+	}
+	seen := map[string]struct{}{}
+	add := func(items *[]string, candidate string) {
+		candidate = normalizeRetrievalQuery(candidate)
+		if candidate == "" {
+			return
+		}
+		key := strings.ToLower(candidate)
+		if _, ok := seen[key]; ok {
+			return
+		}
+		seen[key] = struct{}{}
+		*items = append(*items, candidate)
+	}
+
+	queries := make([]string, 0, 6)
+	add(&queries, original)
+	cleaned := stripQuestionWords(original)
+	add(&queries, cleaned)
+	for _, term := range importantTerms(cleaned) {
+		add(&queries, term)
+		if len(queries) >= 6 {
+			break
+		}
+	}
+	return queries
+}
+
+func retrievalQueryWeight(index int) float64 {
+	switch index {
+	case 0:
+		return 1
+	case 1:
+		return 0.82
+	default:
+		return 0.58
+	}
+}
+
+func normalizeRetrievalQuery(value string) string {
+	value = strings.TrimSpace(value)
+	value = strings.Map(func(r rune) rune {
+		switch r {
+		case '，', '。', '、', '？', '?', '！', '!', '：', ':', '；', ';', '“', '”', '"', '\'', '（', '）', '(', ')', '[', ']', '【', '】', '{', '}', '<', '>', '《', '》', '\n', '\r', '\t':
+			return ' '
+		default:
+			return r
+		}
+	}, value)
+	return strings.Join(strings.Fields(value), " ")
+}
+
+func stripQuestionWords(value string) string {
+	cleaned := normalizeRetrievalQuery(value)
+	replacers := []string{
+		"请问", "帮我", "告诉我", "我想知道", "能不能", "可以", "是否",
+		"为什么", "怎么", "如何", "什么是", "是什么", "有哪些", "哪些", "总结一下",
+		"这篇文章", "这篇", "这个", "那个", "里面", "关于", "知识库", "内容",
+		"please", "tell me", "what is", "what are", "how to", "why",
+	}
+	for _, word := range replacers {
+		cleaned = strings.ReplaceAll(cleaned, word, " ")
+		cleaned = strings.ReplaceAll(cleaned, strings.ToUpper(word), " ")
+	}
+	return strings.Join(strings.Fields(cleaned), " ")
+}
+
+func importantTerms(value string) []string {
+	fields := strings.Fields(normalizeRetrievalQuery(value))
+	out := make([]string, 0, len(fields))
+	for _, field := range fields {
+		term := strings.TrimSpace(field)
+		if term == "" || isStopTerm(term) {
+			continue
+		}
+		if len([]rune(term)) < 2 && isASCII(term) {
+			continue
+		}
+		out = append(out, term)
+	}
+	if len(out) == 0 {
+		compact := strings.ReplaceAll(normalizeRetrievalQuery(value), " ", "")
+		if len([]rune(compact)) >= 2 {
+			out = append(out, compact)
+		}
+	}
+	return out
+}
+
+func isStopTerm(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "的", "了", "和", "与", "及", "在", "是", "有", "吗", "呢", "吧", "么", "什么", "怎么", "如何", "为什么", "哪些", "是否",
+		"the", "a", "an", "and", "or", "to", "of", "in", "on", "for", "is", "are", "was", "were", "what", "why", "how":
+		return true
+	default:
+		return false
+	}
+}
+
+func isASCII(value string) bool {
+	for _, r := range value {
+		if r > 127 {
+			return false
+		}
+	}
+	return true
 }
 
 func matchLabel(keyword, semantic bool) string {
