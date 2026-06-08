@@ -70,6 +70,11 @@ export interface BookmarkImportResult {
   bookmarks: Bookmark[]
 }
 
+export interface LinuxDoBookmarkImportResult extends BookmarkImportResult {
+  parsed: number
+  ignored: number
+}
+
 export interface Article {
   id: string
   user_id: string

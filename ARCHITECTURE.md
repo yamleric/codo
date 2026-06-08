@@ -302,6 +302,8 @@ Codo 按单人单用设计，不维护角色、团队或复杂管理员系统。
 
 未配置 embedding 时，搜索和问答仍可使用关键词召回；未配置 LLM 时，搜索可用，问答返回服务未配置错误。
 
+Linux.do 书签导入复用收藏夹同步链路：前台上传 Discourse 用户导出的 `bookmarks.csv` 或包含该文件的 zip，后端只读取 `link`、`name`、`bookmarkable_type`、`created_at` 字段，过滤 `linux.do` 域名链接后写入 `bookmarks`。同步时任务来源标记为 `linux_do`，抓取、摘要、分类、切片和问答仍沿用标准网页管线。
+
 ---
 
 ## 日报邮件推送
