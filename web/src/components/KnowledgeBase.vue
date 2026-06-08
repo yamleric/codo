@@ -134,16 +134,24 @@
             </div>
             <span class="task-category">{{ matchLabel(result.match) }}</span>
           </header>
-          <p>{{ result.snippet || result.summary }}</p>
+          <button type="button" class="knowledge-summary-preview" @click="openArticle(result.article_id, 'summary')">
+            <span>{{ resultPreview(result) }}</span>
+          </button>
           <div class="knowledge-card-footer">
             <div class="task-tags">
               <button v-if="result.category" type="button" @click="selectCategory(result.category)">{{ result.category }}</button>
               <button v-for="tag in result.tags" :key="tag" type="button" @click="selectTag(tag)">{{ tag }}</button>
             </div>
-            <a v-if="result.url" :href="result.url" target="_blank" rel="noreferrer">
-              <ExternalLink :size="13" />
-              原文
-            </a>
+            <div class="knowledge-card-actions">
+              <button type="button" class="knowledge-read-button" @click="openArticle(result.article_id, 'content')">
+                <BookOpenText :size="13" />
+                解析
+              </button>
+              <a v-if="result.url" :href="result.url" target="_blank" rel="noreferrer">
+                <ExternalLink :size="13" />
+                原文
+              </a>
+            </div>
           </div>
         </article>
 
@@ -155,15 +163,23 @@
             </div>
             <span v-if="article.category" class="task-category">{{ article.category }}</span>
           </header>
-          <p>{{ article.summary }}</p>
+          <button type="button" class="knowledge-summary-preview" @click="openArticle(article.id, 'summary')">
+            <span>{{ articlePreview(article) }}</span>
+          </button>
           <div class="knowledge-card-footer">
             <div v-if="article.tags?.length" class="task-tags">
               <button v-for="tag in article.tags" :key="tag" type="button" @click="selectTag(tag)">{{ tag }}</button>
             </div>
-            <a v-if="article.url" :href="article.url" target="_blank" rel="noreferrer">
-              <ExternalLink :size="13" />
-              原文
-            </a>
+            <div class="knowledge-card-actions">
+              <button type="button" class="knowledge-read-button" @click="openArticle(article.id, 'content')">
+                <BookOpenText :size="13" />
+                解析
+              </button>
+              <a v-if="article.url" :href="article.url" target="_blank" rel="noreferrer">
+                <ExternalLink :size="13" />
+                原文
+              </a>
+            </div>
           </div>
         </article>
 
@@ -174,16 +190,102 @@
         </div>
       </div>
     </div>
+
+    <div v-if="readerOpen" class="article-reader-backdrop" @click.self="closeArticle">
+      <aside class="article-reader" aria-label="解析内容浏览器">
+        <header class="article-reader-header">
+          <div>
+            <span class="section-kicker">PARSED PAGE</span>
+            <strong>{{ selectedArticle ? articleTitle(selectedArticle) : '读取解析内容' }}</strong>
+            <small v-if="selectedArticle">{{ articleHost(selectedArticle.url) }} · {{ formatDate(selectedArticle.published_at || selectedArticle.created_at) }}</small>
+          </div>
+          <div class="article-reader-actions">
+            <a v-if="selectedArticle?.url" :href="selectedArticle.url" target="_blank" rel="noreferrer" title="打开原网页">
+              <ExternalLink :size="14" />
+              打开原网页
+            </a>
+            <button type="button" class="icon-button" title="关闭" @click="closeArticle">
+              <X :size="16" />
+            </button>
+          </div>
+        </header>
+
+        <div v-if="detailLoading" class="article-reader-state">
+          <LoaderCircle :size="16" class="spinning" />
+          读取正文
+        </div>
+
+        <div v-else-if="detailError" class="source-alert article-reader-error">
+          <CircleAlert :size="15" />
+          <span>{{ detailError }}</span>
+          <button type="button" @click="retryArticle">重试</button>
+        </div>
+
+        <template v-else-if="selectedArticle">
+          <div class="article-reader-meta">
+            <span>{{ sourceLabel(selectedArticle.source) }}</span>
+            <span>{{ contentTypeLabel(selectedArticle.content_type) }}</span>
+            <span v-if="selectedArticle.category">{{ selectedArticle.category }}</span>
+            <span>{{ contentStats }}</span>
+          </div>
+
+          <div class="article-reader-tabs" role="tablist" aria-label="阅读内容切换">
+            <button type="button" :class="{ active: readerMode === 'summary' }" @click="readerMode = 'summary'">
+              <MessageSquareText :size="14" />
+              摘要
+            </button>
+            <button type="button" :class="{ active: readerMode === 'content' }" @click="readerMode = 'content'">
+              <FileText :size="14" />
+              正文
+            </button>
+          </div>
+
+          <section v-if="readerMode === 'summary'" class="article-reader-summary">
+            <header>
+              <MessageSquareText :size="14" />
+              <strong>摘要</strong>
+              <span>{{ summaryStats }}</span>
+            </header>
+            <div v-if="summaryParagraphs.length" class="article-reader-summary-text">
+              <p v-for="(paragraph, index) in summaryParagraphs" :key="index">{{ paragraph }}</p>
+            </div>
+            <div v-else class="article-reader-empty">
+              <Database :size="18" />
+              <strong>没有摘要</strong>
+              <span>这条内容尚未生成摘要，可以切换到正文查看解析文本。</span>
+            </div>
+          </section>
+
+          <section v-else class="article-reader-content">
+            <header>
+              <FileText :size="14" />
+              <strong>解析正文</strong>
+              <span>{{ articleParagraphs.length }} 段</span>
+            </header>
+            <div v-if="articleParagraphs.length" class="article-reader-text">
+              <p v-for="(paragraph, index) in articleParagraphs" :key="index">{{ paragraph }}</p>
+            </div>
+            <div v-else class="article-reader-empty">
+              <Database :size="18" />
+              <strong>没有保存正文</strong>
+              <span>这条内容可能只保存了摘要，或抓取时没有得到可读文本。</span>
+            </div>
+          </section>
+        </template>
+      </aside>
+    </div>
   </section>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import {
+  BookOpenText,
   Bot,
   CircleAlert,
   Database,
   ExternalLink,
+  FileText,
   Layers,
   LoaderCircle,
   MessageSquareText,
@@ -192,6 +294,7 @@ import {
   SearchCheck,
   Send,
   Tags,
+  X,
 } from '@lucide/vue'
 import { api } from '../api'
 import type { Article, FacetRow, KnowledgeCitation, KnowledgeFacets, QAResponse, SearchResult } from '../types'
@@ -214,6 +317,11 @@ const questionDraft = ref('')
 const qa = ref<QAResponse | null>(null)
 const qaLoading = ref(false)
 const qaError = ref('')
+const selectedArticle = ref<Article | null>(null)
+const selectedArticleID = ref('')
+const readerMode = ref<'summary' | 'content'>('content')
+const detailLoading = ref(false)
+const detailError = ref('')
 
 const visibleFacets = computed<FacetRow[]>(() => {
   const source = facetMode.value === 'category' ? facets.value?.categories : facets.value?.tags
@@ -230,6 +338,26 @@ const qaModeText = computed(() => {
   if (qa.value?.mode === 'hybrid' || searchMode.value === 'hybrid') return '混合检索'
   if (semanticAvailable.value) return '语义检索可用'
   return '关键词检索'
+})
+
+const readerOpen = computed(() => detailLoading.value || !!detailError.value || !!selectedArticle.value)
+
+const articleParagraphs = computed(() => readableParagraphs(selectedArticle.value?.content || ''))
+
+const summaryParagraphs = computed(() => readableParagraphs(selectedArticle.value?.summary || ''))
+
+const contentStats = computed(() => {
+  const content = selectedArticle.value?.content || ''
+  const chars = Array.from(content.trim()).length
+  if (!chars) return '0 字'
+  return `${chars} 字`
+})
+
+const summaryStats = computed(() => {
+  const summary = selectedArticle.value?.summary || ''
+  const chars = Array.from(summary.trim()).length
+  if (!chars) return '0 字'
+  return `${chars} 字`
 })
 
 async function load() {
@@ -315,6 +443,34 @@ async function askQuestion() {
   }
 }
 
+async function openArticle(id: string, mode: 'summary' | 'content' = 'content') {
+  if (!id || detailLoading.value) return
+  selectedArticleID.value = id
+  readerMode.value = mode
+  detailLoading.value = true
+  detailError.value = ''
+  try {
+    selectedArticle.value = await api.getArticle(id)
+  } catch {
+    selectedArticle.value = null
+    detailError.value = '无法读取解析正文，请稍后重试。'
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function retryArticle() {
+  if (selectedArticleID.value) openArticle(selectedArticleID.value, readerMode.value)
+}
+
+function closeArticle() {
+  selectedArticle.value = null
+  selectedArticleID.value = ''
+  readerMode.value = 'content'
+  detailError.value = ''
+  detailLoading.value = false
+}
+
 function articleTitle(article: Article) {
   if (article.title) return article.title
   try {
@@ -333,6 +489,14 @@ function resultTitle(result: SearchResult) {
   }
 }
 
+function articlePreview(article: Article) {
+  return compactPreview(article.summary) || '暂无摘要，点击查看解析内容'
+}
+
+function resultPreview(result: SearchResult) {
+  return compactPreview(result.snippet) || compactPreview(result.summary) || '暂无摘要，点击查看解析内容'
+}
+
 function citationTitle(citation: KnowledgeCitation) {
   if (citation.title) return citation.title
   try {
@@ -340,6 +504,28 @@ function citationTitle(citation: KnowledgeCitation) {
   } catch {
     return citation.url || citation.article_id
   }
+}
+
+function articleHost(url: string) {
+  try {
+    return new URL(url).hostname
+  } catch {
+    return url || '未知来源'
+  }
+}
+
+function readableParagraphs(content: string) {
+  return content
+    .replace(/\r\n/g, '\n')
+    .split(/\n{2,}|\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+}
+
+function compactPreview(value: string) {
+  return value
+    .replace(/\s+/g, ' ')
+    .trim()
 }
 
 function sourceLabel(source: string) {
