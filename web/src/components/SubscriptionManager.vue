@@ -54,6 +54,9 @@
         <button type="button" :class="{ active: draft.source_type === 'chaoxing' }" @click="setDraftType('chaoxing')">
           <GraduationCap :size="14" />学习通
         </button>
+        <button type="button" :class="{ active: draft.source_type === 'email' }" @click="setDraftType('email')">
+          <Mail :size="14" />邮箱
+        </button>
       </div>
 
       <template v-if="draft.source_type === 'rss'">
@@ -73,7 +76,7 @@
         </div>
       </template>
 
-      <template v-else>
+      <template v-else-if="draft.source_type === 'chaoxing'">
         <label for="chaoxing-account">学习通登录授权</label>
         <div class="source-input-row">
           <input
@@ -103,6 +106,40 @@
         <div class="source-form-options">
           <label><input v-model="draft.notify_new" type="checkbox" />新作业/考试提醒</label>
           <label><input v-model="draft.notify_due" type="checkbox" />临近截止提醒</label>
+        </div>
+      </template>
+
+      <template v-else>
+        <label for="email-account">邮箱收件箱授权</label>
+        <div class="source-input-row">
+          <input
+            id="email-account"
+            v-model="draft.account"
+            type="email"
+            autocomplete="username"
+            placeholder="name@example.com"
+            @input="error = ''"
+          />
+          <button type="submit" title="添加邮箱同步" :disabled="saving || !canSubmitDraft">
+            <LoaderCircle v-if="saving" :size="16" class="spinning" />
+            <ArrowRight v-else :size="16" />
+          </button>
+        </div>
+        <div class="source-form-grid">
+          <input v-model="draft.password" type="password" autocomplete="new-password" placeholder="IMAP 授权码 / 应用专用密码" @input="error = ''" />
+          <input v-model="draft.host" type="text" placeholder="IMAP 主机，可自动识别" @input="error = ''" />
+        </div>
+        <div class="source-form-grid">
+          <input v-model.number="draft.port" type="number" min="1" max="65535" placeholder="端口 993" @input="error = ''" />
+          <input v-model="draft.mailbox" type="text" placeholder="文件夹 INBOX" @input="error = ''" />
+        </div>
+        <div class="source-form-grid">
+          <input v-model.number="draft.since_days" type="number" min="1" max="30" placeholder="同步最近天数" @input="error = ''" />
+          <input v-model.number="draft.max_messages" type="number" min="1" max="100" placeholder="每次最多封数" @input="error = ''" />
+        </div>
+        <div class="source-form-options">
+          <label><input v-model="draft.notify_important" type="checkbox" />重要邮件单独提取</label>
+          <label><input v-model="draft.sync_unread_only" type="checkbox" />只同步未读</label>
         </div>
       </template>
 
@@ -143,6 +180,7 @@
           <CircleAlert v-if="sub.last_error" :size="15" />
           <PauseCircle v-else-if="!sub.enabled" :size="15" />
           <GraduationCap v-else-if="sub.source_type === 'chaoxing'" :size="15" />
+          <Mail v-else-if="sub.source_type === 'email'" :size="15" />
           <Rss v-else :size="15" />
         </span>
         <div class="source-body">
@@ -204,7 +242,7 @@
           <span>Feed 地址</span>
           <input v-model="editDraft.feed_url" type="url" required />
         </label>
-        <template v-else>
+        <template v-else-if="editing.source_type === 'chaoxing'">
           <label>
             <span>学习通账号</span>
             <input v-model="editDraft.account" type="text" autocomplete="username" required />
@@ -230,6 +268,50 @@
           <div class="source-form-options">
             <label><input v-model="editDraft.notify_new" type="checkbox" />新作业/考试提醒</label>
             <label><input v-model="editDraft.notify_due" type="checkbox" />临近截止提醒</label>
+          </div>
+        </template>
+        <template v-else-if="editing.source_type === 'email'">
+          <label>
+            <span>邮箱账号</span>
+            <input v-model="editDraft.account" type="email" autocomplete="username" required />
+          </label>
+          <div class="source-edit-grid">
+            <label>
+              <span>更新授权码</span>
+              <input v-model="editDraft.password" type="password" autocomplete="new-password" :placeholder="editing.password_configured ? '已配置，留空不修改' : 'IMAP 授权码 / 应用专用密码'" />
+            </label>
+            <label>
+              <span>IMAP 主机</span>
+              <input v-model="editDraft.host" type="text" placeholder="imap.example.com" />
+            </label>
+          </div>
+          <div class="source-edit-grid">
+            <label>
+              <span>端口</span>
+              <input v-model.number="editDraft.port" type="number" min="1" max="65535" />
+            </label>
+            <label>
+              <span>文件夹</span>
+              <input v-model="editDraft.mailbox" type="text" placeholder="INBOX" />
+            </label>
+          </div>
+          <div class="source-edit-grid">
+            <label>
+              <span>最近天数</span>
+              <input v-model.number="editDraft.since_days" type="number" min="1" max="30" />
+            </label>
+            <label>
+              <span>最多封数</span>
+              <input v-model.number="editDraft.max_messages" type="number" min="1" max="100" />
+            </label>
+          </div>
+          <div class="source-credential-state">
+            <span>{{ editing.password_configured ? '授权码已配置' : '授权码未配置' }}</span>
+            <span>{{ editDraft.sync_unread_only ? '仅同步未读' : '同步最近邮件' }}</span>
+          </div>
+          <div class="source-form-options">
+            <label><input v-model="editDraft.notify_important" type="checkbox" />重要邮件单独提取</label>
+            <label><input v-model="editDraft.sync_unread_only" type="checkbox" />只同步未读</label>
           </div>
         </template>
         <label>
@@ -265,6 +347,7 @@ import {
   Clock3,
   GraduationCap,
   LoaderCircle,
+  Mail,
   Pause,
   PauseCircle,
   Pencil,
@@ -282,7 +365,7 @@ import type { Subscription } from '../types'
 const props = defineProps<{ compact?: boolean }>()
 
 type FilterID = 'all' | 'enabled' | 'paused' | 'error'
-type SourceType = 'rss' | 'chaoxing'
+type SourceType = 'rss' | 'chaoxing' | 'email'
 
 const subs = ref<Subscription[]>([])
 const showAdd = ref(false)
@@ -307,6 +390,14 @@ const draft = reactive({
   alert_hours: 24,
   notify_new: true,
   notify_due: true,
+  provider: 'imap',
+  host: '',
+  port: 993,
+  mailbox: 'INBOX',
+  since_days: 1,
+  max_messages: 20,
+  notify_important: true,
+  sync_unread_only: false,
 })
 const editDraft = reactive({
   feed_url: '',
@@ -319,6 +410,14 @@ const editDraft = reactive({
   alert_hours: 24,
   notify_new: true,
   notify_due: true,
+  provider: 'imap',
+  host: '',
+  port: 993,
+  mailbox: 'INBOX',
+  since_days: 1,
+  max_messages: 20,
+  notify_important: true,
+  sync_unread_only: false,
 })
 
 const filters: { id: FilterID; label: string }[] = [
@@ -333,13 +432,14 @@ const errorCount = computed(() => subs.value.filter(sub => !!sub.last_error).len
 const categoryCount = computed(() => new Set(subs.value.map(sub => sub.category).filter(Boolean)).size)
 const canSubmitDraft = computed(() => {
   if (draft.source_type === 'rss') return !!draft.feed_url.trim()
-  return !!draft.account.trim() && (!!draft.password || !!draft.cookie.trim())
+  if (draft.source_type === 'chaoxing') return !!draft.account.trim() && (!!draft.password || !!draft.cookie.trim())
+  return !!draft.account.trim() && !!draft.password
 })
 
 const filteredSubs = computed(() => {
   const term = query.value.trim().toLowerCase()
   return subs.value.filter((sub) => {
-    const haystack = `${displayName(sub)} ${sub.feed_url} ${sub.category}`.toLowerCase()
+    const haystack = `${displayName(sub)} ${sub.feed_url} ${sub.category} ${sub.account} ${sub.host} ${sub.mailbox}`.toLowerCase()
     if (term && !haystack.includes(term)) return false
     if (activeFilter.value === 'enabled') return sub.enabled
     if (activeFilter.value === 'paused') return !sub.enabled
@@ -388,7 +488,7 @@ async function add() {
         title: draft.title.trim(),
         category: draft.category.trim(),
       })
-    } else {
+    } else if (draft.source_type === 'chaoxing') {
       await api.addSubscription({
         source_type: 'chaoxing',
         account: draft.account.trim(),
@@ -400,6 +500,22 @@ async function add() {
         notify_new: draft.notify_new,
         notify_due: draft.notify_due,
       })
+    } else {
+      await api.addSubscription({
+        source_type: 'email',
+        account: draft.account.trim(),
+        password: draft.password,
+        provider: draft.provider.trim(),
+        host: draft.host.trim(),
+        port: Number(draft.port) || 993,
+        mailbox: draft.mailbox.trim() || 'INBOX',
+        since_days: Number(draft.since_days) || 1,
+        max_messages: Number(draft.max_messages) || 20,
+        notify_important: draft.notify_important,
+        sync_unread_only: draft.sync_unread_only,
+        title: draft.title.trim(),
+        category: draft.category.trim(),
+      })
     }
     draft.feed_url = ''
     draft.title = ''
@@ -410,10 +526,24 @@ async function add() {
     draft.alert_hours = 24
     draft.notify_new = true
     draft.notify_due = true
+    draft.provider = 'imap'
+    draft.host = ''
+    draft.port = 993
+    draft.mailbox = 'INBOX'
+    draft.since_days = 1
+    draft.max_messages = 20
+    draft.notify_important = true
+    draft.sync_unread_only = false
     showAdd.value = false
     await load()
   } catch {
-    error.value = draft.source_type === 'chaoxing' ? '添加失败，请检查学习通账号、密码或 Cookie。' : '添加失败，请检查 Feed 地址。'
+    if (draft.source_type === 'chaoxing') {
+      error.value = '添加失败，请检查学习通账号、密码或 Cookie。'
+    } else if (draft.source_type === 'email') {
+      error.value = '添加失败，请检查邮箱地址、IMAP 主机或授权码。'
+    } else {
+      error.value = '添加失败，请检查 Feed 地址。'
+    }
   } finally {
     saving.value = false
   }
@@ -432,6 +562,14 @@ function startEdit(sub: Subscription) {
   editDraft.alert_hours = sub.alert_hours || 24
   editDraft.notify_new = sub.notify_new
   editDraft.notify_due = sub.notify_due
+  editDraft.provider = sub.provider || 'imap'
+  editDraft.host = sub.host || ''
+  editDraft.port = sub.port || 993
+  editDraft.mailbox = sub.mailbox || 'INBOX'
+  editDraft.since_days = sub.since_days || 1
+  editDraft.max_messages = sub.max_messages || 20
+  editDraft.notify_important = sub.notify_important
+  editDraft.sync_unread_only = sub.sync_unread_only
 }
 
 async function saveEdit() {
@@ -463,6 +601,37 @@ async function saveEdit() {
       if (editDraft.password) payload.password = editDraft.password
       if (editDraft.cookie.trim()) payload.cookie = editDraft.cookie.trim()
       await api.updateSubscription(editing.value.id, payload)
+    } else if (editingSourceType === 'email') {
+      const payload: {
+        account: string
+        title: string
+        category: string
+        enabled: boolean
+        provider: string
+        host: string
+        port: number
+        mailbox: string
+        since_days: number
+        max_messages: number
+        notify_important: boolean
+        sync_unread_only: boolean
+        password?: string
+      } = {
+        account: editDraft.account.trim(),
+        title: editDraft.title.trim(),
+        category: editDraft.category.trim(),
+        enabled: editDraft.enabled,
+        provider: editDraft.provider.trim(),
+        host: editDraft.host.trim(),
+        port: Number(editDraft.port) || 993,
+        mailbox: editDraft.mailbox.trim() || 'INBOX',
+        since_days: Number(editDraft.since_days) || 1,
+        max_messages: Number(editDraft.max_messages) || 20,
+        notify_important: editDraft.notify_important,
+        sync_unread_only: editDraft.sync_unread_only,
+      }
+      if (editDraft.password) payload.password = editDraft.password
+      await api.updateSubscription(editing.value.id, payload)
     } else {
       await api.updateSubscription(editing.value.id, {
         feed_url: editDraft.feed_url.trim(),
@@ -474,7 +643,13 @@ async function saveEdit() {
     editing.value = null
     await load()
   } catch {
-    editError.value = editingSourceType === 'chaoxing' ? '保存失败，请检查学习通配置。' : '保存失败，请检查 Feed 地址或稍后重试。'
+    if (editingSourceType === 'chaoxing') {
+      editError.value = '保存失败，请检查学习通配置。'
+    } else if (editingSourceType === 'email') {
+      editError.value = '保存失败，请检查邮箱 IMAP 配置。'
+    } else {
+      editError.value = '保存失败，请检查 Feed 地址或稍后重试。'
+    }
   } finally {
     saving.value = false
   }
@@ -507,10 +682,21 @@ async function remove(sub: Subscription) {
 function displayName(sub: Subscription) {
   if (sub.title?.trim()) return sub.title.trim()
   if (sub.source_type === 'chaoxing') return sub.account ? `学习通 ${sub.account}` : '学习通巡检'
+  if (sub.source_type === 'email') return sub.account ? `邮箱 ${sub.account}` : '邮箱收件箱'
   return feedName(sub.feed_url)
 }
 
 function sourceDescription(sub: Subscription) {
+  if (sub.source_type === 'email') {
+    const states = [
+      sub.password_configured ? '授权码已配置' : '授权码未配置',
+      `${sub.host || '自动识别'}:${sub.port || 993}`,
+      sub.mailbox || 'INBOX',
+      `${sub.max_messages || 20} 封/次`,
+      sub.sync_unread_only ? '仅未读' : '全部最近邮件',
+    ]
+    return states.join(' · ')
+  }
   if (sub.source_type !== 'chaoxing') return sub.feed_url
   const states = [
     sub.password_configured ? '密码已配置' : '密码未配置',
@@ -535,6 +721,7 @@ function statusLabel(sub: Subscription) {
 }
 
 function typeLabel(sub: Subscription) {
+  if (sub.source_type === 'email') return '邮箱'
   return sub.source_type === 'chaoxing' ? '学习通' : 'RSS'
 }
 

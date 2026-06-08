@@ -410,21 +410,23 @@ func (p *EmailPipeline) Run(ctx context.Context, t *task.Task) error {
 	if cat != emailImportant && cat != emailNotify && cat != emailSpam {
 		cat = emailNotify // safe fallback for unexpected model output
 	}
+	if cat == emailImportant && !emailImportantExtractionEnabled(t.RawContent()) {
+		cat = emailNotify
+	}
 	p.addStep(ctx, t, "邮件分类", task.StepOK, string(cat), start)
 
 	if cat == emailSpam {
 		t.SetFilterDecision(task.FilterDiscard)
 		return p.setStatus(ctx, t, task.StatusDiscarded)
 	}
+	decision := task.FilterPass
 	if cat == emailNotify {
 		t.SetFilterDecision(task.FilterSilent)
-		// Do not store raw content as summary — it may be long or sensitive.
-		// Summary stays empty; the full content is stored via SaveKnowledgeItem.
-		p.categorize(ctx, t, t.RawContent())
-		return p.saveAndNotify(ctx, t, "")
+		decision = task.FilterSilent
+	} else {
+		t.SetFilterDecision(task.FilterPass)
 	}
 
-	t.SetFilterDecision(task.FilterPass)
 	if err := p.setStatus(ctx, t, task.StatusAnalyzing); err != nil {
 		return err
 	}
@@ -436,8 +438,29 @@ func (p *EmailPipeline) Run(ctx context.Context, t *task.Task) error {
 	t.SetSummary(summary)
 	p.addStep(ctx, t, "生成摘要", task.StepOK, "", start)
 	p.categorize(ctx, t, t.RawContent()+"\n\n摘要：\n"+summary)
+	t.SetFilterDecision(decision)
 
 	return p.saveAndNotify(ctx, t, summary)
+}
+
+func emailImportantExtractionEnabled(content string) bool {
+	header := content
+	if idx := strings.Index(content, "\n\n"); idx >= 0 {
+		header = content[:idx]
+	}
+	for _, line := range strings.Split(header, "\n") {
+		parts := strings.SplitN(line, "：", 2)
+		if len(parts) != 2 {
+			parts = strings.SplitN(line, ":", 2)
+		}
+		if len(parts) != 2 {
+			continue
+		}
+		if strings.TrimSpace(parts[0]) == "重要邮件单独提取" {
+			return strings.TrimSpace(strings.ToLower(parts[1])) != "false"
+		}
+	}
+	return true
 }
 
 // ── MessagePipeline ───────────────────────────────────────────────────────────

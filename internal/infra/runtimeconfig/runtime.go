@@ -45,6 +45,10 @@ func (r *LLM) Summarize(ctx context.Context, t *task.Task, content string) (stri
 	return r.client(ctx).Summarize(ctx, t, content)
 }
 
+func (r *LLM) Classify(ctx context.Context, content string) (string, error) {
+	return r.client(ctx).Classify(ctx, content)
+}
+
 func (r *LLM) Categorize(ctx context.Context, userID, content string) (task.Classification, error) {
 	return r.client(ctx).Categorize(ctx, userID, content)
 }

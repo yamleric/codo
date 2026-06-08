@@ -22,11 +22,19 @@ type SourceSubscriptionRow struct {
 	Title              string     `json:"title"`
 	Category           string     `json:"category"`
 	Account            string     `json:"account"`
+	Provider           string     `json:"provider"`
+	Host               string     `json:"host"`
+	Port               int        `json:"port"`
+	Mailbox            string     `json:"mailbox"`
 	PasswordConfigured bool       `json:"password_configured"`
 	CookieConfigured   bool       `json:"cookie_configured"`
 	AlertHours         int        `json:"alert_hours"`
 	NotifyNew          bool       `json:"notify_new"`
 	NotifyDue          bool       `json:"notify_due"`
+	NotifyImportant    bool       `json:"notify_important"`
+	SyncUnreadOnly     bool       `json:"sync_unread_only"`
+	SinceDays          int        `json:"since_days"`
+	MaxMessages        int        `json:"max_messages"`
 	LastFetchedAt      *time.Time `json:"last_fetched_at"`
 	LastError          string     `json:"last_error"`
 	LastErrorAt        *time.Time `json:"last_error_at"`
@@ -62,6 +70,44 @@ type ChaoxingSubscriptionInput struct {
 	NotifyNew  *bool
 	NotifyDue  *bool
 	Enabled    *bool
+}
+
+type EmailSubscription struct {
+	ID              string
+	UserID          string
+	Title           string
+	Category        string
+	Account         string
+	Password        string
+	Provider        string
+	Host            string
+	Port            int
+	Mailbox         string
+	SinceDays       int
+	MaxMessages     int
+	NotifyImportant bool
+	SyncUnreadOnly  bool
+	LastFetchedAt   *time.Time
+	LastError       string
+	LastErrorAt     *time.Time
+	Enabled         bool
+	CreatedAt       time.Time
+}
+
+type EmailSubscriptionInput struct {
+	Title           string
+	Category        string
+	Account         string
+	Password        string
+	Provider        string
+	Host            string
+	Port            int
+	Mailbox         string
+	SinceDays       int
+	MaxMessages     int
+	NotifyImportant *bool
+	SyncUnreadOnly  *bool
+	Enabled         *bool
 }
 
 type SourceItemRow struct {
@@ -109,7 +155,7 @@ func (s *Store) ListSubscriptions(ctx context.Context, userID string) ([]SourceS
 	rows, err := s.db.Query(ctx, `
 		SELECT id, user_id, source_type, config, last_fetched_at, enabled, created_at
 		FROM subscriptions
-		WHERE user_id = $1 AND source_type IN ('rss', 'chaoxing')
+		WHERE user_id = $1 AND source_type IN ('rss', 'chaoxing', 'email')
 		ORDER BY enabled DESC, source_type ASC, created_at DESC`, userID)
 	if err != nil {
 		return nil, err
@@ -240,9 +286,108 @@ func (s *Store) ListActiveChaoxingSubscriptions(ctx context.Context) ([]Chaoxing
 	return subs, rows.Err()
 }
 
+func (s *Store) AddEmailSubscription(ctx context.Context, userID string, input EmailSubscriptionInput) (string, error) {
+	if err := s.ensureUser(ctx, userID); err != nil {
+		return "", err
+	}
+	input = normalizeEmailInput(input, nil)
+	if err := validateEmailInput(input); err != nil {
+		return "", err
+	}
+	if existingID, err := s.findEmailSubscriptionID(ctx, userID, input.Account, input.Mailbox); err != nil {
+		return "", err
+	} else if existingID != "" {
+		enabled := true
+		input.Enabled = &enabled
+		return existingID, s.UpdateEmailSubscription(ctx, userID, existingID, input)
+	}
+
+	id := fmt.Sprintf("email-%d", time.Now().UnixMilli())
+	config, err := marshalEmailConfig(input)
+	if err != nil {
+		return "", err
+	}
+	enabled := true
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	_, err = s.db.Exec(ctx, `
+		INSERT INTO subscriptions (id, user_id, source_type, config, enabled)
+		VALUES ($1, $2, 'email', $3::jsonb, $4)`,
+		id, userID, config, enabled)
+	return id, err
+}
+
+func (s *Store) UpdateEmailSubscription(ctx context.Context, userID, id string, input EmailSubscriptionInput) error {
+	existing, err := s.GetEmailSubscription(ctx, userID, id)
+	if err != nil {
+		return err
+	}
+	input = normalizeEmailInput(input, existing)
+	if err := validateEmailInput(input); err != nil {
+		return err
+	}
+	config, err := marshalEmailConfig(input)
+	if err != nil {
+		return err
+	}
+	enabled := existing.Enabled
+	if input.Enabled != nil {
+		enabled = *input.Enabled
+	}
+	tag, err := s.db.Exec(ctx, `
+		UPDATE subscriptions
+		SET config = $3::jsonb, enabled = $4
+		WHERE id = $1 AND user_id = $2 AND source_type = 'email'`,
+		id, userID, config, enabled)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() == 0 {
+		return pgx.ErrNoRows
+	}
+	return nil
+}
+
+func (s *Store) GetEmailSubscription(ctx context.Context, userID, id string) (*EmailSubscription, error) {
+	sub, err := scanEmailSubscription(s.db.QueryRow(ctx, `
+		SELECT id, user_id, config, last_fetched_at, enabled, created_at
+		FROM subscriptions
+		WHERE user_id = $1 AND id = $2 AND source_type = 'email'`, userID, id))
+	if err != nil {
+		return nil, err
+	}
+	return &sub, nil
+}
+
+func (s *Store) ListActiveEmailSubscriptions(ctx context.Context) ([]EmailSubscription, error) {
+	rows, err := s.db.Query(ctx, `
+		SELECT id, user_id, config, last_fetched_at, enabled, created_at
+		FROM subscriptions
+		WHERE source_type = 'email' AND enabled = true
+		ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var subs []EmailSubscription
+	for rows.Next() {
+		sub, err := scanEmailSubscription(rows)
+		if err != nil {
+			return nil, err
+		}
+		subs = append(subs, sub)
+	}
+	if subs == nil {
+		return []EmailSubscription{}, nil
+	}
+	return subs, rows.Err()
+}
+
 func (s *Store) DeleteSubscription(ctx context.Context, userID, id string) error {
 	_, err := s.db.Exec(ctx,
-		`DELETE FROM subscriptions WHERE id = $1 AND user_id = $2 AND source_type IN ('rss', 'chaoxing')`,
+		`DELETE FROM subscriptions WHERE id = $1 AND user_id = $2 AND source_type IN ('rss', 'chaoxing', 'email')`,
 		id, userID)
 	return err
 }
@@ -399,6 +544,26 @@ func (s *Store) MarkSourceItemDueNotified(ctx context.Context, id string) error 
 	return err
 }
 
+func (s *Store) UpdateSourceItemAnalysis(ctx context.Context, id, status, summary, category string, tags []string, articleID string) error {
+	payload, err := json.Marshal(map[string]any{
+		"summary":    truncateText(summary, 1200),
+		"category":   truncateText(category, 80),
+		"tags":       tags,
+		"article_id": truncateText(articleID, 180),
+	})
+	if err != nil {
+		return err
+	}
+	_, err = s.db.Exec(ctx, `
+		UPDATE source_items
+		SET status = $2,
+		    payload = payload || $3::jsonb,
+		    updated_at = NOW()
+		WHERE id = $1`,
+		id, truncateText(status, 80), payload)
+	return err
+}
+
 func (s *Store) getSourceItemByExternal(ctx context.Context, subscriptionID, itemType, externalID string) (SourceItemRow, error) {
 	return scanSourceItem(s.db.QueryRow(ctx, `
 		SELECT id, user_id, subscription_id, source_type, item_type, external_id,
@@ -423,11 +588,19 @@ func scanSourceSubscription(row scanner) (SourceSubscriptionRow, error) {
 	sub.Title = configString(config, "title")
 	sub.Category = configString(config, "category")
 	sub.Account = configString(config, "account")
+	sub.Provider = configString(config, "provider")
+	sub.Host = configString(config, "host")
+	sub.Port = configInt(config, "port", 0)
+	sub.Mailbox = configString(config, "mailbox")
 	sub.PasswordConfigured = configString(config, "password") != ""
 	sub.CookieConfigured = configString(config, "cookie") != ""
 	sub.AlertHours = configInt(config, "alert_hours", 24)
 	sub.NotifyNew = configBool(config, "notify_new", true)
 	sub.NotifyDue = configBool(config, "notify_due", true)
+	sub.NotifyImportant = configBool(config, "notify_important", true)
+	sub.SyncUnreadOnly = configBool(config, "sync_unread_only", false)
+	sub.SinceDays = configInt(config, "since_days", 1)
+	sub.MaxMessages = configInt(config, "max_messages", 20)
 	sub.LastError = configString(config, "last_error")
 	sub.LastErrorAt = parseOptionalTime(configString(config, "last_error_at"))
 	if lastFetched.Valid {
@@ -454,6 +627,39 @@ func scanChaoxingSubscription(row scanner) (ChaoxingSubscription, error) {
 	sub.AlertHours = configInt(config, "alert_hours", 24)
 	sub.NotifyNew = configBool(config, "notify_new", true)
 	sub.NotifyDue = configBool(config, "notify_due", true)
+	sub.LastError = configString(config, "last_error")
+	sub.LastErrorAt = parseOptionalTime(configString(config, "last_error_at"))
+	if lastFetched.Valid {
+		t := lastFetched.Time
+		sub.LastFetchedAt = &t
+	}
+	return sub, nil
+}
+
+func scanEmailSubscription(row scanner) (EmailSubscription, error) {
+	var sub EmailSubscription
+	var configRaw []byte
+	var lastFetched pgtype.Timestamptz
+	err := row.Scan(&sub.ID, &sub.UserID, &configRaw, &lastFetched, &sub.Enabled, &sub.CreatedAt)
+	if err != nil {
+		return sub, err
+	}
+	config := decodeConfig(configRaw)
+	sub.Title = configString(config, "title")
+	sub.Category = configString(config, "category")
+	sub.Account = configString(config, "account")
+	sub.Password = configString(config, "password")
+	sub.Provider = configString(config, "provider")
+	sub.Host = configString(config, "host")
+	sub.Port = configInt(config, "port", 993)
+	sub.Mailbox = configString(config, "mailbox")
+	if sub.Mailbox == "" {
+		sub.Mailbox = "INBOX"
+	}
+	sub.SinceDays = configInt(config, "since_days", 1)
+	sub.MaxMessages = configInt(config, "max_messages", 20)
+	sub.NotifyImportant = configBool(config, "notify_important", true)
+	sub.SyncUnreadOnly = configBool(config, "sync_unread_only", false)
 	sub.LastError = configString(config, "last_error")
 	sub.LastErrorAt = parseOptionalTime(configString(config, "last_error_at"))
 	if lastFetched.Valid {
@@ -564,12 +770,172 @@ func marshalChaoxingConfig(input ChaoxingSubscriptionInput) ([]byte, error) {
 	return json.Marshal(config)
 }
 
+func normalizeEmailInput(input EmailSubscriptionInput, existing *EmailSubscription) EmailSubscriptionInput {
+	input.Title = strings.TrimSpace(input.Title)
+	input.Category = strings.TrimSpace(input.Category)
+	input.Account = strings.TrimSpace(input.Account)
+	input.Provider = strings.TrimSpace(strings.ToLower(input.Provider))
+	input.Host = strings.TrimSpace(strings.ToLower(input.Host))
+	input.Mailbox = strings.TrimSpace(input.Mailbox)
+	if input.Mailbox == "" {
+		input.Mailbox = "INBOX"
+	}
+	if input.Provider == "" || input.Host == "" || input.Port <= 0 {
+		provider, host, port := inferEmailProvider(input.Account)
+		if input.Provider == "" {
+			input.Provider = provider
+		}
+		if input.Host == "" {
+			input.Host = host
+		}
+		if input.Port <= 0 {
+			input.Port = port
+		}
+	}
+	if input.Port <= 0 {
+		input.Port = 993
+	}
+	if input.SinceDays <= 0 {
+		input.SinceDays = 1
+	}
+	if input.SinceDays > 30 {
+		input.SinceDays = 30
+	}
+	if input.MaxMessages <= 0 {
+		input.MaxMessages = 20
+	}
+	if input.MaxMessages > 100 {
+		input.MaxMessages = 100
+	}
+	if input.NotifyImportant == nil {
+		value := true
+		if existing != nil {
+			value = existing.NotifyImportant
+		}
+		input.NotifyImportant = &value
+	}
+	if input.SyncUnreadOnly == nil {
+		value := false
+		if existing != nil {
+			value = existing.SyncUnreadOnly
+		}
+		input.SyncUnreadOnly = &value
+	}
+	if existing != nil {
+		if input.Title == "" {
+			input.Title = existing.Title
+		}
+		if input.Category == "" {
+			input.Category = existing.Category
+		}
+		if input.Account == "" {
+			input.Account = existing.Account
+		}
+		if input.Password == "" {
+			input.Password = existing.Password
+		}
+		if input.Provider == "" {
+			input.Provider = existing.Provider
+		}
+		if input.Host == "" {
+			input.Host = existing.Host
+		}
+		if input.Port <= 0 {
+			input.Port = existing.Port
+		}
+		if input.Mailbox == "" {
+			input.Mailbox = existing.Mailbox
+		}
+	}
+	return input
+}
+
+func validateEmailInput(input EmailSubscriptionInput) error {
+	if !IsEmailAddress(input.Account) {
+		return fmt.Errorf("email account must be a valid email address")
+	}
+	if input.Password == "" {
+		return fmt.Errorf("email app password or authorization code is required")
+	}
+	if strings.TrimSpace(input.Host) == "" {
+		return fmt.Errorf("email imap host is required")
+	}
+	if input.Port < 1 || input.Port > 65535 {
+		return fmt.Errorf("email imap port must be between 1 and 65535")
+	}
+	if strings.TrimSpace(input.Mailbox) == "" {
+		return fmt.Errorf("email mailbox is required")
+	}
+	return nil
+}
+
+func marshalEmailConfig(input EmailSubscriptionInput) ([]byte, error) {
+	config := map[string]any{
+		"title":            input.Title,
+		"category":         input.Category,
+		"account":          input.Account,
+		"password":         input.Password,
+		"provider":         input.Provider,
+		"host":             input.Host,
+		"port":             input.Port,
+		"mailbox":          input.Mailbox,
+		"since_days":       input.SinceDays,
+		"max_messages":     input.MaxMessages,
+		"notify_important": input.NotifyImportant != nil && *input.NotifyImportant,
+		"sync_unread_only": input.SyncUnreadOnly != nil && *input.SyncUnreadOnly,
+	}
+	return json.Marshal(config)
+}
+
+func inferEmailProvider(account string) (provider, host string, port int) {
+	port = 993
+	domain := ""
+	if parts := strings.Split(strings.ToLower(strings.TrimSpace(account)), "@"); len(parts) == 2 {
+		domain = parts[1]
+	}
+	switch domain {
+	case "gmail.com", "googlemail.com":
+		return "gmail", "imap.gmail.com", port
+	case "outlook.com", "hotmail.com", "live.com", "msn.com":
+		return "outlook", "outlook.office365.com", port
+	case "163.com":
+		return "163", "imap.163.com", port
+	case "126.com":
+		return "126", "imap.126.com", port
+	case "qq.com", "foxmail.com":
+		return "qq", "imap.qq.com", port
+	default:
+		if domain != "" {
+			return "imap", "imap." + domain, port
+		}
+		return "imap", "", port
+	}
+}
+
 func (s *Store) findChaoxingSubscriptionID(ctx context.Context, userID, account string) (string, error) {
 	var id string
 	err := s.db.QueryRow(ctx, `
 		SELECT id FROM subscriptions
 		WHERE user_id = $1 AND source_type = 'chaoxing' AND config->>'account' = $2
 		LIMIT 1`, userID, strings.TrimSpace(account)).Scan(&id)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return "", err
+	}
+	return id, nil
+}
+
+func (s *Store) findEmailSubscriptionID(ctx context.Context, userID, account, mailbox string) (string, error) {
+	var id string
+	err := s.db.QueryRow(ctx, `
+		SELECT id FROM subscriptions
+		WHERE user_id = $1
+		  AND source_type = 'email'
+		  AND config->>'account' = $2
+		  AND COALESCE(config->>'mailbox', 'INBOX') = $3
+		LIMIT 1`, userID, strings.TrimSpace(account), strings.TrimSpace(mailbox)).Scan(&id)
 	if err != nil {
 		if errors.Is(err, pgx.ErrNoRows) {
 			return "", nil

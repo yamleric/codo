@@ -16,6 +16,7 @@ type Store interface {
 	RecordSubscriptionFetchFailure(ctx context.Context, subID string, fetchErr error) error
 	MarkSourceItemNewNotified(ctx context.Context, id string) error
 	MarkSourceItemDueNotified(ctx context.Context, id string) error
+	UpdateSourceItemAnalysis(ctx context.Context, id, status, summary, category string, tags []string, articleID string) error
 }
 
 type Notifier interface {

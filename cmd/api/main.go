@@ -223,7 +223,7 @@ func (s *server) wsHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // GET /api/subscriptions — list subscriptions
-// POST /api/subscriptions — add RSS or Chaoxing subscription
+// POST /api/subscriptions — add RSS, Chaoxing, or Email subscription
 func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
@@ -264,6 +264,8 @@ func (s *server) subscriptions(w http.ResponseWriter, r *http.Request) {
 			id, err = s.st.AddRSSSubscription(r.Context(), userID, feedURL, stringValue(body.Title), stringValue(body.Category))
 		case "chaoxing":
 			id, err = s.st.AddChaoxingSubscription(r.Context(), userID, chaoxingInputFromPayload(body, nil))
+		case "email":
+			id, err = s.st.AddEmailSubscription(r.Context(), userID, emailInputFromPayload(body, nil))
 		default:
 			http.Error(w, "invalid source_type", http.StatusBadRequest)
 			return
@@ -356,6 +358,11 @@ func (s *server) subscriptionByID(w http.ResponseWriter, r *http.Request) {
 				http.Error(w, err.Error(), statusFromStoreError(err))
 				return
 			}
+		case "email":
+			if err := s.st.UpdateEmailSubscription(r.Context(), userID, id, emailInputFromPayload(body, existing)); err != nil {
+				http.Error(w, err.Error(), statusFromStoreError(err))
+				return
+			}
 		default:
 			http.Error(w, "unsupported subscription type", http.StatusBadRequest)
 			return
@@ -387,6 +394,23 @@ func (s *server) refreshSubscription(w http.ResponseWriter, r *http.Request, use
 		runCtx, cancel := context.WithTimeout(r.Context(), 90*time.Second)
 		defer cancel()
 		result, err := sourcecheck.NewChaoxingService(s.st, &runtimeconfig.Notifier{Store: s.st}, nil).Run(runCtx, *sub)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(result)
+		return
+	}
+	if generic.SourceType == "email" {
+		sub, err := s.st.GetEmailSubscription(r.Context(), userID, id)
+		if err != nil {
+			http.Error(w, "subscription not found", http.StatusNotFound)
+			return
+		}
+		runCtx, cancel := context.WithTimeout(r.Context(), 3*time.Minute)
+		defer cancel()
+		result, err := sourcecheck.NewEmailService(s.st, s.router, nil).Run(runCtx, *sub)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusBadGateway)
 			return
@@ -756,17 +780,25 @@ func (s *server) knowledgeQA(w http.ResponseWriter, r *http.Request) {
 }
 
 type subscriptionPayload struct {
-	SourceType *string `json:"source_type"`
-	FeedURL    *string `json:"feed_url"`
-	Title      *string `json:"title"`
-	Category   *string `json:"category"`
-	Enabled    *bool   `json:"enabled"`
-	Account    *string `json:"account"`
-	Password   *string `json:"password"`
-	Cookie     *string `json:"cookie"`
-	AlertHours *int    `json:"alert_hours"`
-	NotifyNew  *bool   `json:"notify_new"`
-	NotifyDue  *bool   `json:"notify_due"`
+	SourceType      *string `json:"source_type"`
+	FeedURL         *string `json:"feed_url"`
+	Title           *string `json:"title"`
+	Category        *string `json:"category"`
+	Enabled         *bool   `json:"enabled"`
+	Account         *string `json:"account"`
+	Password        *string `json:"password"`
+	Cookie          *string `json:"cookie"`
+	AlertHours      *int    `json:"alert_hours"`
+	NotifyNew       *bool   `json:"notify_new"`
+	NotifyDue       *bool   `json:"notify_due"`
+	Provider        *string `json:"provider"`
+	Host            *string `json:"host"`
+	Port            *int    `json:"port"`
+	Mailbox         *string `json:"mailbox"`
+	SinceDays       *int    `json:"since_days"`
+	MaxMessages     *int    `json:"max_messages"`
+	NotifyImportant *bool   `json:"notify_important"`
+	SyncUnreadOnly  *bool   `json:"sync_unread_only"`
 }
 
 type bookmarkPayload struct {
@@ -982,6 +1014,7 @@ func main() {
 	router, err := pipeline.NewRouter(
 		pipeline.NewWebPage(fetcher.NewHTTP(), llmClient, llmClient, st, notifier, srv.onStatus),
 		pipeline.NewVideo(fetcher.NewVideo(), llmClient, llmClient, st, notifier, srv.onStatus),
+		pipeline.NewEmail(llmClient, llmClient, st, notifier, srv.onStatus),
 	)
 	if err != nil {
 		slog.Error("router init", "err", err)
@@ -1107,6 +1140,71 @@ func chaoxingInputFromPayload(body subscriptionPayload, existing *store.SourceSu
 		if body.NotifyDue == nil {
 			value := existing.NotifyDue
 			input.NotifyDue = &value
+		}
+		if body.Enabled == nil {
+			value := existing.Enabled
+			input.Enabled = &value
+		}
+	}
+	return input
+}
+
+func emailInputFromPayload(body subscriptionPayload, existing *store.SourceSubscriptionRow) store.EmailSubscriptionInput {
+	input := store.EmailSubscriptionInput{
+		Title:           stringValue(body.Title),
+		Category:        stringValue(body.Category),
+		Account:         stringValue(body.Account),
+		Password:        rawStringValue(body.Password),
+		Provider:        stringValue(body.Provider),
+		Host:            stringValue(body.Host),
+		Mailbox:         stringValue(body.Mailbox),
+		SinceDays:       1,
+		MaxMessages:     20,
+		NotifyImportant: body.NotifyImportant,
+		SyncUnreadOnly:  body.SyncUnreadOnly,
+		Enabled:         body.Enabled,
+	}
+	if body.Port != nil {
+		input.Port = *body.Port
+	} else if existing != nil && existing.Port > 0 {
+		input.Port = existing.Port
+	}
+	if body.SinceDays != nil {
+		input.SinceDays = *body.SinceDays
+	} else if existing != nil && existing.SinceDays > 0 {
+		input.SinceDays = existing.SinceDays
+	}
+	if body.MaxMessages != nil {
+		input.MaxMessages = *body.MaxMessages
+	} else if existing != nil && existing.MaxMessages > 0 {
+		input.MaxMessages = existing.MaxMessages
+	}
+	if existing != nil {
+		if body.Title == nil {
+			input.Title = existing.Title
+		}
+		if body.Category == nil {
+			input.Category = existing.Category
+		}
+		if body.Account == nil {
+			input.Account = existing.Account
+		}
+		if body.Provider == nil {
+			input.Provider = existing.Provider
+		}
+		if body.Host == nil {
+			input.Host = existing.Host
+		}
+		if body.Mailbox == nil {
+			input.Mailbox = existing.Mailbox
+		}
+		if body.NotifyImportant == nil {
+			value := existing.NotifyImportant
+			input.NotifyImportant = &value
+		}
+		if body.SyncUnreadOnly == nil {
+			value := existing.SyncUnreadOnly
+			input.SyncUnreadOnly = &value
 		}
 		if body.Enabled == nil {
 			value := existing.Enabled
