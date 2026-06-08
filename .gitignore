@@ -10,6 +10,9 @@ secrets.yml
 secrets/
 browser-profile/
 
+# Local product requirements / roadmap notes
+FEATURES.md
+
 # Go binaries
 /bin/
 *.exe
